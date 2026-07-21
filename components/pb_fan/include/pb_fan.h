@@ -23,3 +23,9 @@ esp_err_t pb_fan_init(void);
 void pb_fan_set_level(uint8_t percent);
 
 uint8_t pb_fan_get_level(void);
+
+// Bring-up diagnostics. count_out = total zero-cross interrupts seen since boot;
+// interval_us_out = microseconds between the last two edges (the mains
+// half-period: ~10000 us => 50 Hz mains, ~8333 us => 60 Hz). interval 0 means no
+// zero-cross has been detected yet (ZCD not working / wrong pin / no mains).
+void pb_fan_zc_diag(uint32_t *count_out, uint32_t *interval_us_out);
