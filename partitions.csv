@@ -1,0 +1,17 @@
+# OpenBreath partition table — ESP32-C3, 4MB flash, dual-OTA.
+#
+# TODO (before first flash): reconcile the flashing strategy.
+#   - If we KEEP the stock 2nd-stage bootloader, this table's offsets/layout must
+#     match what that bootloader expects, or we flash our own bootloader + table
+#     (full image) via the CH340K UART in download mode. The stock bootloader is
+#     NOT to be modified per project constraint; a full own-image flash replaces
+#     it wholesale and is the cleaner path. Verify before writing to hardware.
+#   - `nvs` is kept at the conventional offset; if we want to preserve/read stock
+#     NVS ("app_nvs" namespace) confirm the stock nvs offset/size and match it.
+#
+# Name,     Type, SubType, Offset,   Size
+nvs,        data, nvs,     0x9000,   0x6000,
+otadata,    data, ota,     0xf000,   0x2000,
+phy_init,   data, phy,     0x11000,  0x1000,
+ota_0,      app,  ota_0,   0x20000,  0x1D0000,
+ota_1,      app,  ota_1,   0x1F0000, 0x1D0000,

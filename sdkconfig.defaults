@@ -1,0 +1,23 @@
+# OpenBreath default sdkconfig — ESP32-C3-MINI-1 (4MB flash)
+CONFIG_IDF_TARGET="esp32c3"
+
+# Flash / partitions
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Size-optimize (the app slot is ~1.8MB; stock image is ~1.3MB)
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# Console on UART0 (CH340K USB-C bridge, GPIO21/20). The C3 native USB-Serial-JTAG
+# is NOT usable here: its D-/D+ pads are GPIO18/19 and GPIO18 drives the heater SSR.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# Task watchdog on — a hung control loop must not leave the heater energized.
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+CONFIG_ESP_TASK_WDT_PANIC=y
+
+# Allow esp_timer ISR-dispatch callbacks — pb_fan fires the TRIAC gate from an
+# ISR-dispatched one-shot for low-jitter phase timing.
+CONFIG_ESP_TIMER_SUPPORTS_ISR_DISPATCH_METHOD=y

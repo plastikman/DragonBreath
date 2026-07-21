@@ -1,0 +1,144 @@
+// SPDX-License-Identifier: MIT
+// See docs/NTC_CONVERSION.md for the full reverse-engineering derivation.
+#include "pb_ntc.h"
+#include "pb_board.h"
+
+#include <math.h>
+#include <string.h>
+#include "esp_log.h"
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
+
+static const char *TAG = "pb_ntc";
+
+// Stock divider: Vrail = 0.1 V in the ADC voltage domain (DROM const 0x3dcccccd).
+#define PB_VRAIL_V        0.100000001f
+// Raw-count fault thresholds (from stock fcn.4200ca8e).
+#define PB_RAW_OPEN_MAX   0xFFD   // raw > this => open / over-range
+#define PB_RAW_SHORT_MIN  0x14    // raw <= this => short / under-range
+#define PB_AVG_WINDOW     5
+
+// R/T table, reverse-engineered verbatim from DROM @0x3c0e6638.
+// Index i corresponds to temperature (PB_RT_TEMP_BASE + i) degrees C.
+// Resistance (kOhm) is monotonically decreasing with temperature.
+#define PB_RT_TEMP_BASE   12
+static const float PB_RT_R_KOHM[] = {
+    198.7f,189.4f,180.7f,172.4f,164.5f,157.0f,149.9f,143.2f,136.8f,130.7f, // 12-21
+    124.9f,119.4f,114.2f,109.2f,104.5f,100.0f, 95.7f, 91.6f, 87.8f, 84.1f, // 22-31
+     80.6f, 77.2f, 74.0f, 70.9f, 68.0f, 65.3f, 62.6f, 60.1f, 57.7f, 55.4f, // 32-41
+     53.2f, 51.1f, 49.1f, 47.2f, 45.3f, 43.6f, 41.9f, 40.3f, 38.8f, 37.3f, // 42-51
+     35.9f, 34.5f, 33.2f, 32.0f, 30.8f, 29.7f, 28.6f, 27.6f, 26.6f, 25.6f, // 52-61
+     24.7f, 23.8f, 23.0f, 22.2f, 21.4f, 20.6f, 19.9f, 19.2f, 18.6f, 17.9f, // 62-71
+     17.3f, 16.7f, 16.2f, 15.6f, 15.1f, 14.6f, 14.1f, 13.6f, 13.2f, 12.8f, // 72-81
+     12.4f, 12.0f, 11.6f, 11.2f, 10.9f, 10.5f, 10.2f,  9.9f,  9.6f,  9.3f, // 82-91
+      9.0f,  8.7f,  8.4f,  8.2f,  7.9f,  7.7f,  7.4f,  7.2f,  7.0f,  6.8f, // 92-101
+      6.6f,  6.4f,  6.2f,  6.0f,  5.9f,  5.7f,  5.5f,  5.4f,  5.2f,  5.1f, // 102-111
+      4.9f,  4.8f,  4.7f,  4.5f,  4.4f,  4.3f,  4.2f,  4.1f,  3.9f,  3.8f, // 112-121
+      3.7f,  3.6f,  3.5f,  3.4f,                                          // 122-125
+};
+#define PB_RT_N ((int)(sizeof(PB_RT_R_KOHM) / sizeof(PB_RT_R_KOHM[0])))
+
+static adc_oneshot_unit_handle_t s_adc;
+static adc_cali_handle_t s_cali[2];
+static int s_rref_kohm;
+static bool s_ready;
+
+// moving-average state per channel
+static float s_win[2][PB_AVG_WINDOW];
+static int   s_win_cnt[2];
+static int   s_win_idx[2];
+
+static const adc_channel_t s_chan[2] = { PB_ADC_CH_CHAMBER, PB_ADC_CH_PTC };
+
+// Resistance (kOhm) -> temperature (C), linear interpolation over the R/T table.
+// Interpolation is strictly better than the stock nearest-entry and stays <1C of it.
+static float rntc_to_temp_c(float r_kohm)
+{
+    if (r_kohm >= PB_RT_R_KOHM[0])          return (float)PB_RT_TEMP_BASE;           // clamp cold
+    if (r_kohm <= PB_RT_R_KOHM[PB_RT_N - 1]) return (float)(PB_RT_TEMP_BASE + PB_RT_N - 1); // clamp hot
+    for (int i = 0; i < PB_RT_N - 1; i++) {
+        float rhi = PB_RT_R_KOHM[i];        // higher R, lower temp
+        float rlo = PB_RT_R_KOHM[i + 1];    // lower R,  higher temp
+        if (r_kohm <= rhi && r_kohm >= rlo) {
+            float f = (rhi - r_kohm) / (rhi - rlo);   // 0..1
+            return (float)(PB_RT_TEMP_BASE + i) + f;  // +1C per index step
+        }
+    }
+    return NAN; // unreachable
+}
+
+static float push_average(pb_ntc_channel_t ch, float v)
+{
+    s_win[ch][s_win_idx[ch]] = v;
+    s_win_idx[ch] = (s_win_idx[ch] + 1) % PB_AVG_WINDOW;
+    if (s_win_cnt[ch] < PB_AVG_WINDOW) s_win_cnt[ch]++;
+    float sum = 0.0f;
+    for (int i = 0; i < s_win_cnt[ch]; i++) sum += s_win[ch][i];
+    return sum / (float)s_win_cnt[ch];
+}
+
+esp_err_t pb_ntc_init(void)
+{
+    s_rref_kohm = pb_board_rref_kohm();
+
+    adc_oneshot_unit_init_cfg_t unit_cfg = { .unit_id = PB_ADC_UNIT };
+    esp_err_t err = adc_oneshot_new_unit(&unit_cfg, &s_adc);
+    if (err != ESP_OK) return err;
+
+    // 12dB atten matches the stock config; curve-fitting is available on the C3.
+    adc_oneshot_chan_cfg_t chan_cfg = {
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+    for (int i = 0; i < 2; i++) {
+        err = adc_oneshot_config_channel(s_adc, s_chan[i], &chan_cfg);
+        if (err != ESP_OK) return err;
+
+        adc_cali_curve_fitting_config_t cali_cfg = {
+            .unit_id = PB_ADC_UNIT,
+            .chan = s_chan[i],
+            .atten = ADC_ATTEN_DB_12,
+            .bitwidth = ADC_BITWIDTH_12,
+        };
+        err = adc_cali_create_scheme_curve_fitting(&cali_cfg, &s_cali[i]);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "cali init failed on ch%d: %s", i, esp_err_to_name(err));
+            return err;
+        }
+        s_win_cnt[i] = 0;
+        s_win_idx[i] = 0;
+    }
+    s_ready = true;
+    ESP_LOGI(TAG, "init ok (Rref=%d kOhm, Vrail=%.3f V)", s_rref_kohm, PB_VRAIL_V);
+    return ESP_OK;
+}
+
+pb_ntc_status_t pb_ntc_read(pb_ntc_channel_t ch, float *out_c)
+{
+    if (!s_ready) return PB_NTC_UNINIT;
+
+    int raw = 0;
+    if (adc_oneshot_read(s_adc, s_chan[ch], &raw) != ESP_OK) return PB_NTC_UNINIT;
+    if (raw > PB_RAW_OPEN_MAX)  return PB_NTC_OPEN;
+    if (raw <= PB_RAW_SHORT_MIN) return PB_NTC_SHORT;
+
+    int mv = 0;
+    if (adc_cali_raw_to_voltage(s_cali[ch], raw, &mv) != ESP_OK) return PB_NTC_UNINIT;
+    float v = (float)mv / 1000.0f;               // volts at the pin
+    if (v <= 0.0f || v >= PB_VRAIL_V) return PB_NTC_OPEN;
+
+    float r_kohm = (float)s_rref_kohm * v / (PB_VRAIL_V - v);
+    float t = rntc_to_temp_c(r_kohm);
+    float smoothed = push_average(ch, t);
+    if (out_c) *out_c = smoothed;
+    return PB_NTC_OK;
+}
+
+float pb_ntc_smoothed_c(pb_ntc_channel_t ch)
+{
+    if (!s_ready || s_win_cnt[ch] == 0) return NAN;
+    float sum = 0.0f;
+    for (int i = 0; i < s_win_cnt[ch]; i++) sum += s_win[ch][i];
+    return sum / (float)s_win_cnt[ch];
+}

@@ -1,0 +1,43 @@
+name: firmware-build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'components/**'
+      - 'main/**'
+      - 'CMakeLists.txt'
+      - 'partitions.csv'
+      - 'sdkconfig.defaults'
+      - '.github/workflows/firmware-build.yml'
+  pull_request:
+    paths:
+      - 'components/**'
+      - 'main/**'
+      - 'CMakeLists.txt'
+      - 'partitions.csv'
+      - 'sdkconfig.defaults'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build (ESP-IDF v5.3)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.3
+          target: esp32c3
+          path: '.'
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openbreath-firmware
+          path: |
+            build/openbreath.bin
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+          if-no-files-found: warn
