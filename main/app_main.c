@@ -26,6 +26,8 @@
 #include "pv_wifi.h"
 #include "pv_moonraker.h"
 
+#include "pb_httpd.h"
+
 // Optional local dev config (gitignored): WiFi creds + Moonraker host. Without it
 // the build still works — the device just comes up without network credentials.
 #if defined(__has_include)
@@ -82,33 +84,26 @@ static void control_task(void *arg)
     TickType_t last = xTaskGetTickCount();
     int dbg = 0;
     for (;;) {
-        bool net = s_net_up;
-        pv_moonraker_status_t st = {0};
-        if (net) pv_moonraker_get_status(&st);
-        bool link = net && (st.state == PV_MK_CONNECTED || st.state == PV_MK_SUBSCRIBED);
-
-        // Bring-up: track the printer for telemetry + feed the comms watchdog, but
-        // DO NOT auto-heat yet (target 0). Fan off until a policy drives it.
-        pb_policy_input_t in = {
-            .chamber_target_c = 0.0f,
-            .fan_percent = 0,
-            .link_alive = link,
-        };
-        pb_policy_apply(&in);
+        // Safety/control loop: enforces every heater cutoff + fan-follows-heater.
+        // The chamber setpoint is owned by the HTTP API (pb_httpd -> pb_heater),
+        // and the comms watchdog is fed by controller polls in pb_httpd — so we
+        // must NOT set the target here (that would clobber the HTTP-set value).
         pb_policy_tick();
 
         if (++dbg >= 4) {   // ~2 s
             dbg = 0;
+            bool net = s_net_up;
+            pv_moonraker_status_t st = {0};
+            if (net) pv_moonraker_get_status(&st);
             uint32_t zc = 0, zciv = 0;
             pb_fan_zc_diag(&zc, &zciv);
             ESP_LOGI(TAG,
-                "wifi=%d mk=%d printer=%s | chamber=%.1fC ptc=%.1fC heater=%s | "
-                "bed=%.1f/%.1f mkChamber=%.1f | ZC n=%lu dt=%luus",
-                net ? (int)pv_wifi_state() : -1, (int)st.state,
-                pv_printer_state_str(st.printer),
+                "target=%.0fC heater=%s | chamber=%.1fC ptc=%.1fC | "
+                "wifi=%d mk=%d printer=%s bed=%.1f | ZC n=%lu dt=%luus",
+                pb_heater_get_target_c(), pb_heater_is_on() ? "ON" : "off",
                 pb_ntc_smoothed_c(PB_NTC_CHAMBER), pb_ntc_smoothed_c(PB_NTC_PTC),
-                pb_heater_is_on() ? "ON" : "off",
-                st.bed_temp, st.bed_target, st.chamber_temp,
+                net ? (int)pv_wifi_state() : -1, (int)st.state,
+                pv_printer_state_str(st.printer), st.bed_temp,
                 (unsigned long)zc, (unsigned long)zciv);
         }
         vTaskDelayUntil(&last, period);
@@ -138,6 +133,7 @@ void app_main(void)
 #endif
     ESP_ERROR_CHECK(pv_wifi_start());
     ESP_ERROR_CHECK(pv_moonraker_start());   // loads mk_host/mk_port from NVS, connects
+    ESP_ERROR_CHECK(pb_httpd_start());       // HTTP control API (the Klipper module talks to this)
     s_net_up = true;
-    ESP_LOGI(TAG, "networking up (wifi + moonraker started)");
+    ESP_LOGI(TAG, "networking up (wifi + moonraker + http api)");
 }
