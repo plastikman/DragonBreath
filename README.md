@@ -97,12 +97,12 @@ python3 tools/flash.py --restore backups/stock-YYYYmmdd-HHMMSS.bin   # back to s
 First boot with no stored WiFi starts an `OpenPanda_XXXX` AP + captive portal for
 provisioning.
 
-**Updating OpenBreath:** once running, flash a new build from the web UI —
-**Wi-Fi / printer setup → Firmware update** — by uploading `build/openbreath.bin`.
-The image lands in the inactive OTA slot, is verified, and the device reboots into
-it; a bad image rolls back on the next boot. Web OTA is **OpenBreath-only** — it
-does **not** restore stock firmware (use `tools/flash.py --restore` for that) and
-is refused while the heater is on.
+**Updating OpenBreath:** once running, open the **Firmware update** link on the
+status page (the `/fw` page) and upload `build/openbreath.bin`. The image lands in
+the inactive OTA slot, is verified, and the device reboots into it; a bad image
+rolls back on the next boot. Web OTA is **OpenBreath-only** — it does **not**
+restore stock firmware (use `tools/flash.py --restore` for that) and is refused
+while the heater is on.
 
 ## Layout
 ```
