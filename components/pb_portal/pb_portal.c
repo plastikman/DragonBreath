@@ -141,7 +141,7 @@ static const char STATUS_BODY[] =
     "<div class=srow><span>Target</span><b id=target>--</b></div>"
     "<div class=srow><span>Heating</span><b id=heating>--</b></div>"
     "<div class=srow><span>Element (PTC)</span><b id=ptc>--</b></div></div>"
-    "<div class=card><label>Set chamber target (\xC2\xB0C, 0 = off)</label>"
+    "<div class=card><label>Set chamber target (&deg;C, 0 = off)</label>"
     "<div class=pw><input id=tin type=number min=0 max=70 step=1 value=45>"
     "<button type=button class=go style='width:auto;margin:0;padding:12px 18px' onclick='setT()'>Set</button></div>"
     "<button type=button class=sec onclick='setOff()'>Turn heater off</button>"
@@ -184,7 +184,7 @@ static const char PAGE_TAIL[] =
 // Live status dashboard (root in STA mode).
 static esp_err_t status_page(httpd_req_t *req)
 {
-    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
     SEND(req, PAGE_HEAD);
     SEND(req, STATUS_BODY);
     return httpd_resp_send_chunk(req, NULL, 0);
@@ -203,7 +203,7 @@ static esp_err_t config_page(httpd_req_t *req)
         nvs_close(h);
     }
 
-    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
     SEND(req, PAGE_HEAD);
     SEND(req, CONFIG_WIFI);
 
@@ -295,7 +295,7 @@ static esp_err_t save_post(httpd_req_t *req)
         nvs_close(h);
     }
 
-    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_sendstr(req,
         "<!doctype html><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1'>"
