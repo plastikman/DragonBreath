@@ -6,6 +6,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "cJSON.h"
+#include "nvs.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,46 @@
 
 static const char *TAG = "pb_httpd";
 static httpd_handle_t s_server;
+
+void pb_httpd_ctl_token(char *out, size_t outsz)
+{
+    if (!out || outsz == 0) return;
+    out[0] = '\0';
+    nvs_handle_t h;
+    if (nvs_open("app_nvs", NVS_READONLY, &h) != ESP_OK) return;
+    size_t sz = outsz;
+    nvs_get_str(h, "ctl_token", out, &sz);   // leaves out="" on any error
+    out[outsz - 1] = '\0';
+    nvs_close(h);
+}
+
+bool pb_httpd_auth_ok(httpd_req_t *req)
+{
+    char tok[65];
+    pb_httpd_ctl_token(tok, sizeof tok);
+
+    // Read the custom header. Its mere presence defeats cross-origin HTML forms
+    // (which cannot set custom headers); a configured token additionally pins the
+    // value. Absent header, or one too long to be a valid (<=64 char) token, fails.
+    char hv[65] = {0};
+    size_t hlen = httpd_req_get_hdr_value_len(req, PB_AUTH_HEADER);
+    if (hlen == 0 || hlen >= sizeof hv) return false;
+    if (httpd_req_get_hdr_value_str(req, PB_AUTH_HEADER, hv, sizeof hv) != ESP_OK) return false;
+
+    if (tok[0]) return strcmp(hv, tok) == 0;   // configured token -> exact match
+    return hv[0] != '\0';                       // else presence-only CSRF gate
+}
+
+// Reject a mutating request lacking a valid PB_AUTH_HEADER with 403. Returns true
+// when the caller should stop (already responded).
+static bool auth_reject(httpd_req_t *req)
+{
+    if (pb_httpd_auth_ok(req)) return false;
+    httpd_resp_set_status(req, "403 Forbidden");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"error\":\"missing/invalid " PB_AUTH_HEADER " header\"}");
+    return true;
+}
 
 static const char *ntc_status_str(pb_ntc_status_t s)
 {
@@ -71,6 +112,7 @@ static esp_err_t status_get(httpd_req_t *req)
 // wants heat; if it stops, the heater comms-watchdog latches off.
 static esp_err_t heartbeat_post(httpd_req_t *req)
 {
+    if (auth_reject(req)) return ESP_OK;
     pb_heater_notify_link_alive();
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, "{\"ok\":true}");
@@ -79,6 +121,7 @@ static esp_err_t heartbeat_post(httpd_req_t *req)
 // Explicit safety-fault reset (over-temp / sensor / comms). POST-only.
 static esp_err_t reset_post(httpd_req_t *req)
 {
+    if (auth_reject(req)) return ESP_OK;
     pb_heater_clear_fault();
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, "{\"ok\":true}");
@@ -86,13 +129,16 @@ static esp_err_t reset_post(httpd_req_t *req)
 
 // Parse a finite decimal temperature. strtof with an end-pointer check rejects
 // junk AND non-finite tokens ("nan"/"inf" -> isfinite() false), which atof would
-// silently accept.
+// silently accept. Trailing non-whitespace ("45junk", "45 60") is also rejected
+// so a partially-numeric value can never be silently truncated to a target.
 static bool parse_temp(const char *s, float *out)
 {
     if (!s || !*s) return false;
     char *end = NULL;
     float v = strtof(s, &end);
     if (end == s || !isfinite(v)) return false;
+    while (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n') end++;
+    if (*end != '\0') return false;      // trailing junk after the number
     *out = v;
     return true;
 }
@@ -102,6 +148,7 @@ static bool parse_temp(const char *s, float *out)
 // liveness. Falls back to a plain-number body if no query.
 static esp_err_t target_set(httpd_req_t *req)
 {
+    if (auth_reject(req)) return ESP_OK;
     float t = 0.0f;
     bool have = false;
     char q[48];
