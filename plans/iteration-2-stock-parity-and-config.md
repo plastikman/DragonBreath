@@ -16,6 +16,13 @@ Decisions locked with the user: **phased plan**, **K3-only button**, **boot-OFF 
 no auto-resume**, **AUTO mode included**, **one authoritative device-side state
 machine**, and **breaking alpha API changes are acceptable**.
 
+> **Status (2026-07-23):** Phase 0 ✅ (v0.2.0) · Phase A ✅ (v0.3.0) · Phase B ✅ shipped
+> in v0.3.0 & hardware-validated — **except B2** (thermal-purge + NVS-persisted fault
+> latch), deferred · Phase C ⬜ not started (K3 button) · Phase D 🟡 partial (v2 dashboard
+> covers D2/D3; D1 shell + D4 parity matrix open) · Phase E 🟡 partial (release/build CI +
+> host tests; broader static-analysis/sim/dev-board target open). **Next candidates:** B2
+> safety hardening, Phase C button, or Phase D1/D4 dashboard polish.
+
 Not covered / explicitly out of scope: stock OEM WebSocket protocol + web UI, Bambu binding, K1/K2 buttons, the stock `filtertemp`/`heater_temp` auto params (OpenBreath has no filter sensor; the PTC/chamber cutoffs already bound element temp).
 
 ## Phase 0 — Product identity + release correctness
@@ -97,6 +104,29 @@ added alongside `POST /settings` (bounds + current values in one read); `max_uri
 ---
 
 ## Phase B — Authoritative state + API v2 + modes
+
+> ✅ **Shipped in [v0.3.0](https://github.com/plastikman/DragonBreath/releases/tag/v0.3.0)
+> (2026-07-23) — hardware-validated.** Landed as the reviewed, stacked PRs **#9**
+> (authoritative state machine) → **#11** (API v2), with the host helper migrated in
+> **[dragonbreath-klipper#3](https://github.com/plastikman/dragonbreath-klipper/pull/3)**.
+> Deploy lockstep (flash firmware ≥ v0.3.0, then restart klippy; version mismatch fails safe).
+>
+> - **Done:** **B1** pb_policy is the sole mode/target writer (snapshots + monotonic revisions
+>   + source enum) · **B3** AUTO follow-bed (`bed_threshold_c` 40–120 °C, hysteresis) · **B4**
+>   DRYING (1–12 h, timer auto-off) · **B5** boot-OFF, params-only NVS persistence · **B6**
+>   device-issued lease + stale-lease rejection · **B7** API v2 (`/api/v2/info|state|health|events(SSE)|command|heartbeat`;
+>   alpha `/status`,`/target`,`/heartbeat`,`/reset` removed) · **B8** local POWER_ON 12 h cap ·
+>   **B9** dashboard + helper consume the snapshot/SSE stream.
+> - **Validated on hardware (2026-07-23):** `M141 S45` → POWER_ON + Klipper lease + heat;
+>   DRYING timed heat; AUTO arms (bed-gated, engages when Moonraker bed ≥ threshold).
+> - **⚠ Partial / carried forward — B2 NOT done:** the thermal-purge latch (engage ≥40 °C,
+>   hysteresis release) and the **NVS-persisted** fault latch are unimplemented. `thermal_purge`
+>   in the snapshot is a *heuristic* derived from the v0.2.0 post-print fan cooldown (#6), not
+>   the dedicated purge latch; the fault latch is **RAM-only** (a reboot clears it) — persisting
+>   it is deferred, independently-reviewable safety work.
+> - **LEDs (from Phase A, finalized here):** the panel is 4 direct active-high GPIOs
+>   (Power=GPIO21 — the console-TX pin, so release-only via `CONFIG_PB_POWER_LED`+`sdkconfig.release`;
+>   Auto=6/On=5/Dry=4), *not* a 3-LED set — determined by stock-firmware RE.
 
 **Delivery split.** Land this phase as a stacked series so safety/control review
 is not mixed with HTTP parsing:
@@ -218,6 +248,11 @@ transport/state adapter.
 
 ## Phase C — K3 physical button
 
+> 🚧 **Not started.** No `pb_buttons` component yet; K3 (GPIO2) is unused. The
+> bench-verification gates below still apply before the button is trusted. (Note the
+> LED-ownership prerequisite is already satisfied — `pb_leds` owns GPIO4/5/6 and,
+> in release builds, GPIO21.)
+
 **C1. `pb_buttons` (new component).** Port `pv_button`'s state machine (10 ms poll task, 20 ms debounce, long-press 2 s) behind a per-button table with an `active_low` field (so a wrong polarity guess is a one-line flip). v1 table = K3 only: GPIO2, `GPIO_MODE_INPUT`, internal **pull-up** (never pull-down — GPIO2 is a strap that must be high at reset), poll-only. API `pb_buttons_start(cb)`, `pb_button_cb_t(id, ev)`; SHORT on release, LONG once (suppress trailing short). REQUIRES `driver pb_board` (stays decoupled — no heater/policy link).
 
 **C2. `pb_heater_request_estop(reason)` (new).** Mux-guarded latch (`s_target_c=0; s_latched_off=true; s_fault_reason=reason`) with **no GPIO write** — the next `pb_heater_tick()` drops the SSR in control-task context (≤500 ms), preserving the single-SSR-writer invariant. **Do NOT call `emergency_off()` from the button task** (it writes the SSR GPIO directly).
@@ -252,6 +287,14 @@ panic-off is live ASAP. `pb_policy` REQUIRES += `pb_buttons pv_evlog`.
 
 ## Phase D — Responsive dashboard + remaining parity
 
+> 🟡 **Partially delivered by the v2 dashboard (#11).** **D2** (at-a-glance state:
+> chamber/PTC, requested/effective target, heater/fan, mode, AUTO engagement, drying
+> countdown, Moonraker link, control source/lease, fault/inhibit) and **D3** (target /
+> mode / drying / OFF / fault-reset controls with success/rejection/stale-ownership
+> feedback; setup + OTA on secondary pages) are largely covered by the SSE-driven cards.
+> **Open:** **D1** (reusable component shell + clean narrow-iframe fit — still the single
+> utility page) and **D4** (explicit OEM parity matrix).
+
 **D1. Dashboard shell.** Replace the growing utility page with reusable
 components that remain usable standalone and fit a narrow Fluidd/Mainsail
 iframe without nested scrolling.
@@ -273,6 +316,13 @@ enhancement, not required parity until OEM behavior confirms it.
 ---
 
 ## Phase E — Static analysis, simulation + hardware-in-loop
+
+> 🟡 **Partial.** **E1** in progress: firmware-build + release CI (SHA-pinned actions,
+> least-privilege perms) and host-side tests exist (`pb_policy` host test, `check_api_v2_contract.sh`,
+> dashboard JS check). **Open:** the fuller **E1** gate (warnings-as-errors, formatting,
+> static analysis, dependency validation on every PR), **E2** broad host/sim fault coverage
+> (sensor faults, corrupt NVS, reconnect storms, stale leases, malformed API, OTA rollback),
+> and **E3** the ESP32-C3 dev-board target with heater output compile-time disabled.
 
 **E1. CI/static analysis.** Run warnings-as-errors, formatting, static analysis,
 dependency validation, host-side unit tests, frontend validation, and API/schema
