@@ -22,6 +22,8 @@ Not covered / explicitly out of scope: stock OEM WebSocket protocol + web UI, Ba
 
 Ship these small but user-visible corrections before expanding behavior.
 
+> **✅ DONE — closed by the OpenBreath→DragonBreath rename + the release pipeline; shipped in [v0.2.0](https://github.com/plastikman/DragonBreath/releases/tag/v0.2.0) (2026-07-23).**
+
 **0.1. OpenBreath identity.**
 - AP SSID: `OpenBreath_XXXX`, not `OpenPanda_XXXX`.
 - mDNS: `OpenBreath.local` or uniquely suffixed `OpenBreath-XXXX.local`, not
@@ -29,6 +31,13 @@ Ship these small but user-visible corrections before expanding behavior.
 - Replace OpenPanda/OpenVent in page titles, logs, setup pages, documentation,
   and release material. Shared components receive an injected product identity;
   a shared-core implementation name must not leak into the product.
+
+> ✅ **Done** (as *DragonBreath* — the project was renamed OpenBreath→DragonBreath):
+> AP SSID `DragonBreath_XXXX` (with legacy `OpenPanda_` migration), mDNS
+> `dragonbreath.local` (app-layer override of the OpenVent core), web UI (🐉), logs,
+> docs, release material. **PRs: firmware rename #3, UI polish #4.** Residual nits
+> (non-blocking): mDNS is flat, not per-device-suffixed; the shared OpenVent core still
+> prints its own name in *serial* logs (dev-facing only).
 
 **0.2. Reproducible release artifacts.**
 - Build releases in CI from the tagged commit and publish a manifest containing
@@ -39,6 +48,13 @@ Ship these small but user-visible corrections before expanding behavior.
   Publish the application image separately for OTA.
 - Resolve the current release/CI/local application-image divergence and make the
   documented first-install command work directly with the published bundle.
+
+> ✅ **Done** — tag-triggered CI release (`release.yml` + `tools/package_release.sh`):
+> single-file factory image, OTA app image, complete install bundle (nested layout so the
+> bundled `flash.py --build-dir .` works **and** keeps the mandatory stock backup),
+> `manifest.json` (source SHA, ESP-IDF v5.3.5, OpenVent submodule, per-artifact SHA-256),
+> and `SHA256SUMS.txt`; release notes auto-pulled from `CHANGELOG.md`. Divergence resolved
+> (documented first-install works off the published bundle). **PR #7; first release v0.2.0.**
 
 ## Reusable assets (port — don't reinvent)
 All under `external/OpenVent/firmware/components/` (present via `EXTRA_COMPONENT_DIRS`; some not yet built):
@@ -307,7 +323,7 @@ release only when that phase is device-validated and its artifact manifest is
 traceable to the tagged source.
 
 ## Delivery order
-1. Phase 0: identity and release correctness.
+1. Phase 0: identity and release correctness. ✅ **Done — v0.2.0** (PRs #3, #4, #7).
 2. Phase A: bounded settings and verified LEDs.
 3. Phase B: authoritative state/API, modes, leases, thermal purge, and persistent faults.
 4. Phase C: K3-only physical control.
