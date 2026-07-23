@@ -118,12 +118,21 @@ can return to stock. Flashing is over the on-board CH340K USB-C bridge
 python3 tools/flash.py                 # backup stock, then flash DragonBreath
 python3 tools/flash.py --restore backups/stock-YYYYmmdd-HHMMSS.bin   # back to stock
 ```
+**Or from a published [release](../../releases)** (no build needed): download
+`dragonbreath-<ver>-install-bundle.zip`, verify it (`sha256sum -c SHA256SUMS.txt`),
+unzip, and run `python3 flash.py --build-dir .` — the same stock-backup-first flow.
+A single-image `dragonbreath-<ver>-factory.bin` is also published for
+`esptool.py --chip esp32c3 write_flash 0x0 …`, but that path does **not** back up
+stock — use it only if you already have a backup. Each release also ships a
+`manifest.json` (source SHA, ESP-IDF version, submodule + per-artifact SHA-256).
+
 First boot with no stored WiFi starts an `DragonBreath_XXXX` AP + captive portal for
 provisioning. The AP password is **`987654321`** (same as the stock Panda). Connect
 to it and a browser should pop the setup page automatically (or open `http://192.168.4.1`).
 
 **Updating DragonBreath:** once running, open the **Firmware update** link on the
-status page (the `/fw` page) and upload `build/dragonbreath.bin`. The image lands in
+status page (the `/fw` page) and upload `build/dragonbreath.bin` (or the
+`dragonbreath-<ver>.bin` app image from a release). The image lands in
 the inactive OTA slot, is verified, and the device reboots into it; a bad image
 rolls back on the next boot. Web OTA is **DragonBreath-only** — it does **not**
 restore stock firmware (use `tools/flash.py --restore` for that) and is refused
