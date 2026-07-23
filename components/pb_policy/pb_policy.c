@@ -78,17 +78,18 @@ void pb_policy_tick(void)
         pb_fan_set_level(s_requested_fan);
     }
 
-    // "On" LED (K2/GPIO5) = heater indicator, matching the stock panel: solid
-    // while heating, blinking on a latched safety fault (visible even while the
-    // fan keeps cooling a tripped chamber), off otherwise. pb_policy owns all LED
-    // indication; pb_heater drives no GPIO LED. The "Power" light is hardwired on
-    // (not on GPIO6/5/4) and can't be firmware-gated. Auto (K1) / Dry (K3) are
-    // reserved for the mode work in Phase B.
-    if (pb_heater_is_faulted() || pb_heater_is_inhibited()) {
-        pb_leds_set(PB_LED_ON, PB_LED_BLINK);
-    } else if (heat) {
-        pb_leds_set(PB_LED_ON, PB_LED_SOLID);
-    } else {
-        pb_leds_set(PB_LED_ON, PB_LED_OFF);
-    }
+    // Heating indication, matching the stock panel: solid while heating, blinking
+    // on a latched safety fault (visible even while the fan keeps cooling a tripped
+    // chamber), off otherwise. pb_policy owns all LED indication; pb_heater drives
+    // no GPIO LED.
+    //   - "Power" (GPIO21) is the stock heating indicator — driven only in release
+    //     builds (CONFIG_PB_POWER_LED); in dev builds that pin is the console TX and
+    //     pb_leds skips it, so this call is a harmless no-op there.
+    //   - "On" (GPIO5) is driven the same way as an interim mode indicator until the
+    //     Phase B mode state machine owns Auto/On/Dry.
+    pb_led_pattern_t heat_pat = (pb_heater_is_faulted() || pb_heater_is_inhibited())
+                                    ? PB_LED_BLINK
+                                    : heat ? PB_LED_SOLID : PB_LED_OFF;
+    pb_leds_set(PB_LED_POWER, heat_pat);
+    pb_leds_set(PB_LED_ON, heat_pat);
 }

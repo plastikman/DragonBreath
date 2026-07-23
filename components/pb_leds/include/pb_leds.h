@@ -6,20 +6,24 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "esp_err.h"
 
-// Physical panel labels (top→bottom on the board: Power, Dry, On, Auto), mapped
-// to their driving GPIO. Determined by bench probe. The "Power" light is hardwired
-// on (not on any of these pins) and is not represented here.
+// Physical panel labels (top→bottom on the board: Power, Dry, On, Auto), mapped to
+// their driving GPIO. Confirmed by stock-firmware RE: 4 direct active-high outputs,
+// no matrix. "Power" is on GPIO21 (also UART0-TX) and is only driven when
+// CONFIG_PB_POWER_LED is set — otherwise that pin stays the serial console.
 typedef enum {
-    PB_LED_K1 = 0,   // GPIO6 = "Auto"
-    PB_LED_K2 = 1,   // GPIO5 = "On"  (heater indicator)
-    PB_LED_K3 = 2,   // GPIO4 = "Dry"
-    PB_LED_COUNT = 3,
+    PB_LED_K1 = 0,   // GPIO6  = "Auto"
+    PB_LED_K2 = 1,   // GPIO5  = "On"
+    PB_LED_K3 = 2,   // GPIO4  = "Dry"
+    PB_LED_K4 = 3,   // GPIO21 = "Power" (heating indicator; console-TX pin)
+    PB_LED_COUNT = 4,
     // Semantic aliases (use these; the K-names are the physical button positions).
-    PB_LED_AUTO = PB_LED_K1,
-    PB_LED_ON   = PB_LED_K2,
-    PB_LED_DRY  = PB_LED_K3,
+    PB_LED_AUTO  = PB_LED_K1,
+    PB_LED_ON    = PB_LED_K2,
+    PB_LED_DRY   = PB_LED_K3,
+    PB_LED_POWER = PB_LED_K4,
 } pb_led_id_t;
 
 typedef enum {

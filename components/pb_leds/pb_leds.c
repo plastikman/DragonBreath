@@ -20,8 +20,17 @@ static const char *TAG = "pb_leds";
 #define CODE_GAP_TICKS    16    // 800 ms quiet gap after each burst
 
 static const gpio_num_t s_gpio[PB_LED_COUNT] = {
-    PB_GPIO_LED_K1, PB_GPIO_LED_K2, PB_GPIO_LED_K3,
+    PB_GPIO_LED_K1, PB_GPIO_LED_K2, PB_GPIO_LED_K3, PB_GPIO_LED_POWER,
 };
+
+// The "Power" LED (index 3 / GPIO21) shares the UART0 console TX pin, so it is
+// only claimed + driven when CONFIG_PB_POWER_LED is set (release builds). When
+// unset, that pin stays the serial console and this LED index is skipped.
+#ifdef CONFIG_PB_POWER_LED
+#define PB_LED_DRIVEN(i)  (1)
+#else
+#define PB_LED_DRIVEN(i)  ((i) != PB_LED_K4)
+#endif
 
 // Pattern + CODE pulse-count are the only shared state; both atomic so any task
 // can set them without a lock. All sequencing/phase lives in the driver task.
@@ -38,6 +47,7 @@ static void led_task(void *arg)
 
     for (;;) {
         for (int i = 0; i < PB_LED_COUNT; i++) {
+            if (!PB_LED_DRIVEN(i)) continue;   // GPIO21 left as console TX
             pb_led_pattern_t p = atomic_load(&s_pat[i]);
             int on = 0;
             switch (p) {
@@ -87,7 +97,8 @@ esp_err_t pb_leds_start(void)
     if (s_task) return ESP_ERR_INVALID_STATE;
 
     uint64_t mask = 0;
-    for (int i = 0; i < PB_LED_COUNT; i++) mask |= 1ULL << s_gpio[i];
+    for (int i = 0; i < PB_LED_COUNT; i++)
+        if (PB_LED_DRIVEN(i)) mask |= 1ULL << s_gpio[i];   // skip GPIO21 unless enabled
     gpio_config_t cfg = {
         .pin_bit_mask = mask,
         .mode         = GPIO_MODE_OUTPUT,
@@ -100,7 +111,7 @@ esp_err_t pb_leds_start(void)
     for (int i = 0; i < PB_LED_COUNT; i++) {
         atomic_store(&s_pat[i], PB_LED_OFF);
         atomic_store(&s_code[i], 0);
-        gpio_set_level(s_gpio[i], 0);
+        if (PB_LED_DRIVEN(i)) gpio_set_level(s_gpio[i], 0);
     }
 
     if (xTaskCreate(led_task, "pb_leds", 2048, NULL, 3, &s_task) != pdPASS) {
