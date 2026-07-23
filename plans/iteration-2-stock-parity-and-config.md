@@ -9,16 +9,17 @@ and release-engineering gaps. The alpha API and UI are not frozen and may
 change incompatibly before beta.
 
 Scope came from four exploration passes over the firmware, the RE'd hardware, and the stock behavior. Two realities constrain it:
-- **Hardware limits the buttons.** Of the three physical buttons, only **K3 (GPIO2)** is cleanly usable. **K2 is the *same physical pin* as the chamber NTC** (the safety sensor) and **K1 shares the AC zero-cross ISR** — both are unsafe to repurpose. There is **no buzzer** on the board (audible feedback is not a parity item).
+- **Buttons — all four are usable** (updated 2026-07-23 after a live bench probe; supersedes the earlier "K3-only" assumption). The panel has **4 active-low buttons on safe, unshared GPIOs**: **Power=GPIO9, Auto=GPIO8, On=GPIO10, Dry=GPIO2** (idle high via pull-up, pressed low). The old pin-map that put buttons on GPIO7/GPIO0 was **wrong** — those are the ZCD and chamber NTC, not buttons. Boot-strap caveat: GPIO9 (Power) is the ROM download-mode strap and GPIO8/GPIO2 are also straps, so *don't hold a button at power-on* (GPIO10/On is the only non-strap). There is **no buzzer** (audible feedback is not a parity item); feedback is via each button's co-located LED.
 - **Safety overrides stock fidelity** where they conflict (notably boot behavior).
 
-Decisions locked with the user: **phased plan**, **K3-only button**, **boot-OFF /
-no auto-resume**, **AUTO mode included**, **one authoritative device-side state
-machine**, and **breaking alpha API changes are acceptable**.
+Decisions locked with the user: **phased plan**, **all four buttons usable**
+(updated from "K3-only" after the 2026-07-23 probe), **boot-OFF / no auto-resume**,
+**AUTO mode included**, **one authoritative device-side state machine**, and
+**breaking alpha API changes are acceptable**.
 
 > **Status (2026-07-23):** Phase 0 ✅ (v0.2.0) · Phase A ✅ (v0.3.0) · Phase B ✅ shipped
 > in v0.3.0 & hardware-validated — **except B2** (thermal-purge + NVS-persisted fault
-> latch), deferred · Phase C ⬜ not started (K3 button) · Phase D 🟡 partial (v2 dashboard
+> latch), deferred · Phase C ⬜ not started (buttons — all 4 pins mapped, ready to build) · Phase D 🟡 partial (v2 dashboard
 > covers D2/D3; D1 shell + D4 parity matrix open) · Phase E 🟡 partial (release/build CI +
 > host tests; broader static-analysis/sim/dev-board target open). **Next candidates:** B2
 > safety hardening, Phase C button, or Phase D1/D4 dashboard polish.
@@ -246,42 +247,49 @@ transport/state adapter.
 
 ---
 
-## Phase C — K3 physical button
+## Phase C — Physical buttons (all four)
 
-> 🚧 **Not started.** No `pb_buttons` component yet; K3 (GPIO2) is unused. The
-> bench-verification gates below still apply before the button is trusted. (Note the
-> LED-ownership prerequisite is already satisfied — `pb_leds` owns GPIO4/5/6 and,
-> in release builds, GPIO21.)
+> 🚧 **Not started; pins mapped & ready.** Live probe (2026-07-23) confirmed **4
+> active-low buttons: Power=GPIO9, Auto=GPIO8, On=GPIO10, Dry=GPIO2** (idle high via
+> pull-up, pressed low) — this supersedes the old "K3-only" scope. LED-ownership
+> prerequisite is already satisfied (`pb_leds` owns the mode LEDs GPIO4/5/6 and, in
+> release builds, Power/GPIO21). **Boot-strap caveat:** Power(9)/Auto(8)/Dry(2) are
+> strapping pins (GPIO9 = ROM download-mode) — don't hold a button at power-on;
+> On(10) is the only non-strap.
 
-**C1. `pb_buttons` (new component).** Port `pv_button`'s state machine (10 ms poll task, 20 ms debounce, long-press 2 s) behind a per-button table with an `active_low` field (so a wrong polarity guess is a one-line flip). v1 table = K3 only: GPIO2, `GPIO_MODE_INPUT`, internal **pull-up** (never pull-down — GPIO2 is a strap that must be high at reset), poll-only. API `pb_buttons_start(cb)`, `pb_button_cb_t(id, ev)`; SHORT on release, LONG once (suppress trailing short). REQUIRES `driver pb_board` (stays decoupled — no heater/policy link).
+**C1. `pb_buttons` (new component).** Port `pv_button`'s state machine (10 ms poll task, 20 ms debounce, long-press 2 s) behind a per-button table with an `active_low` field. v1 table = **all four**: `PB_GPIO_BTN_POWER`=9, `_AUTO`=8, `_ON`=10, `_DRY`=2 — each `GPIO_MODE_INPUT` + internal **pull-up** (never pull-down — 9/8/2 are straps that must be high at reset), poll-only. API `pb_buttons_start(cb)`, `pb_button_cb_t(id, ev)` with `id ∈ {POWER, AUTO, ON, DRY}`; SHORT on release, LONG once (suppress trailing short). REQUIRES `driver pb_board` (decoupled — no heater/policy link).
 
 **C2. `pb_heater_request_estop(reason)` (new).** Mux-guarded latch (`s_target_c=0; s_latched_off=true; s_fault_reason=reason`) with **no GPIO write** — the next `pb_heater_tick()` drops the SSR in control-task context (≤500 ms), preserving the single-SSR-writer invariant. **Do NOT call `emergency_off()` from the button task** (it writes the SSR GPIO directly).
 
-**C3. Button UX (provisional until the printed icon + OEM behavior are
-documented) in `pb_policy_on_button`.** Prefer the familiar OEM meaning unless a
-deliberate deviation adds clear safety/usability value. Proposed safety
-semantics: short while heating → normal OFF; short while idle → OEM-compatible
-action or v1 no-op + evlog; long (2 s) while not faulted →
-`pb_heater_request_estop("button")`; long while faulted → attempt clear only if
-every recovery condition passes. A failed clear retains the latch and reports
-why. Never clear a persistent fault through an accidental short press. Every
-button action updates source/revision, invalidates the remote lease, emits an
-event, and drives K3 LED (GPIO4) feedback via `pb_leds_set_code` +
-`pv_evlog_add`. `app_main` registers a thin
+**C3. Button UX (provisional — confirm against OEM behavior) in
+`pb_policy_on_button(id, ev)`.** Map each button to its labeled mode; prefer the
+familiar OEM meaning unless a deviation adds clear safety/usability value. Proposed:
+- **On** (GPIO10) SHORT → toggle manual POWER_ON at the configured/last target; press again → OFF.
+- **Auto** (GPIO8) SHORT → toggle AUTO (follow-bed).
+- **Dry** (GPIO2) SHORT → toggle DRYING (default preset/hours).
+- **Power** (GPIO9) SHORT → master OFF (any mode → OFF); SHORT while already off → no-op + evlog.
+- **LONG (2 s), any button, not faulted** → `pb_heater_request_estop("button:<id>")`.
+  **LONG while faulted** → attempt clear only if every recovery condition passes; a
+  failed clear retains the latch and reports why. Never clear a persistent fault via
+  an accidental short press.
+
+Every action sets source=BUTTON, bumps the revision, invalidates the remote lease,
+emits a `pv_evlog` event, and gives feedback on that button's **co-located LED**
+(`pb_leds_set`/`_set_code`). `app_main` registers a thin
 `button_cb → pb_policy_on_button`, started **early** (before control_task) so
 panic-off is live ASAP. `pb_policy` REQUIRES += `pb_buttons pv_evlog`.
 
 **Files:** add `components/pb_buttons/*`; `pb_heater.{c,h}` (request_estop), `pb_policy.{c,h}` (on_button), `main/app_main.c` + `main/CMakeLists.txt`.
 
-**Bench-verification (gates trusting the button — do on hardware):**
-1. GPIO2 idles **high** unpressed (confirms active-low + pull; also a strap sanity check).
-2. Board boots without holding K3; document "don't hold K3 at power-on."
-3. K3 polarity end-to-end (idle 1 / pressed 0; else flip `active_low`).
-4. LEDs light on **high**; toggling GPIO4/5 does **not** perturb chamber/PTC temps, the ZCD count, or the GPIO2 read; GPIO6 heat LED still works after ownership moved to pb_leds.
-5. Press detection: exactly one SHORT on release; one LONG at threshold, no trailing short.
-6. Safety regression while heating: button/LED activity causes no spurious sensor-fault trips, ZCD keeps counting; long-press drops the SSR ≤1 tick and latches (`safety.fault_latched:true` in `/api/v2/state`).
-7. Remote-control regression: while heating from dashboard/Klipper, a K3 action invalidates the lease, updates both observers, and stale heartbeats/reconnects do not restore heat.
-8. Persistent-fault regression: power-cycle after a latched fault → heater OFF, fan ON, commands rejected until a deliberate valid clear.
+**Bench-verification (gates trusting the buttons — do on hardware; pin + polarity
+already probed 2026-07-23):**
+1. Each button idles **high** unpressed, reads **low** pressed (Power=9, Auto=8, On=10, Dry=2) — re-confirm through the debounce path.
+2. Board boots without holding any button; **document "don't hold a button at power-on"** (GPIO9/Power = ROM download mode; 8/2 also straps).
+3. Per-button press detection: exactly one SHORT on release; one LONG at threshold, no trailing short.
+4. LED feedback: the pressed button's co-located LED responds, and button/LED activity does **not** perturb chamber/PTC temps or the ZCD count.
+5. Safety regression while heating: no spurious sensor-fault trips, ZCD keeps counting; a LONG-press drops the SSR ≤1 tick and latches (`safety.fault_latched:true` in `/api/v2/state`).
+6. Remote-control regression: while heating from dashboard/Klipper, a button action invalidates the lease, updates both observers, and stale heartbeats/reconnects do not restore heat.
+7. Persistent-fault regression (**needs B2**): power-cycle after a latched fault → heater OFF, fan ON, commands rejected until a deliberate valid clear. *Blocked until B2's NVS fault latch lands — today the latch is RAM-only, so this gate can't fully pass yet.*
 
 ---
 

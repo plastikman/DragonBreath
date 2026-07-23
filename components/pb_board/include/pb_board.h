@@ -20,8 +20,9 @@
 // Synced to the zero-cross detector (MB6S bridge + TLP785 opto) on GPIO7.
 #define PB_GPIO_FAN_GATE     GPIO_NUM_3    // TRIAC gate (CONFIRMED, IO03)
 #define PB_GPIO_ZERO_CROSS   GPIO_NUM_7    // ZCD input  (CONFIRMED, IO07)
-                                           // NOTE: shared with K1 button in HW;
-                                           // dedicated to the ZCD ISR here.
+                                           // ZCD ISR only — NOT a button (the old
+                                           // "K1 button on GPIO7" note was wrong;
+                                           // buttons are on 2/8/9/10, see below).
 
 // -------- Thermistors (ADC1) ------------------------------------------------
 // Both NTCs are read on ADC1 via adc_oneshot in the stock firmware.
@@ -46,9 +47,18 @@
 #define PB_GPIO_LED_K3       GPIO_NUM_4    // "Dry"
 #define PB_GPIO_LED_POWER    GPIO_NUM_21   // "Power" (shared with UART0-TX)
 
-// -------- Buttons (not implemented in v0) -----------------------------------
-#define PB_GPIO_BTN_K2       GPIO_NUM_0    // shared with TH0/chamber NTC
-#define PB_GPIO_BTN_K3       GPIO_NUM_2
+// -------- Front-panel buttons (active-low, internal pull-up) -----------------
+// Bench-probed live (2026-07-23): all four are on safe, unshared GPIOs, idle
+// HIGH via pull-up and read LOW when pressed. (The earlier map that put buttons
+// on GPIO7/GPIO0 was WRONG — those are the ZCD and the chamber NTC.)
+// BOOT-STRAP CAVEAT: GPIO9 (Power) is the ROM download-mode strap, and GPIO8
+// (Auto) + GPIO2 (Dry) are also strapping pins that must be HIGH at reset — do
+// not hold those buttons at power-on. GPIO10 (On) is the only non-strap button.
+// Button and LED are co-located per panel label (e.g. Auto = btn GPIO8 / LED GPIO6).
+#define PB_GPIO_BTN_POWER    GPIO_NUM_9    // "Power"  (⚠ download-mode strap)
+#define PB_GPIO_BTN_AUTO     GPIO_NUM_8    // "Auto"   (⚠ strap)
+#define PB_GPIO_BTN_ON       GPIO_NUM_10   // "On"     (no strap)
+#define PB_GPIO_BTN_DRY      GPIO_NUM_2    // "Dry"    (⚠ strap)
 
 // -------- Console UART0 (CH340K USB-C bridge) -------------------------------
 #define PB_GPIO_UART_TX      GPIO_NUM_21
