@@ -8,11 +8,18 @@
 #include <stdint.h>
 #include "esp_err.h"
 
+// Physical panel labels (top→bottom on the board: Power, Dry, On, Auto), mapped
+// to their driving GPIO. Determined by bench probe. The "Power" light is hardwired
+// on (not on any of these pins) and is not represented here.
 typedef enum {
-    PB_LED_K1 = 0,   // GPIO6 — heat/fault indicator (Phase A)
-    PB_LED_K2 = 1,   // GPIO5
-    PB_LED_K3 = 2,   // GPIO4
+    PB_LED_K1 = 0,   // GPIO6 = "Auto"
+    PB_LED_K2 = 1,   // GPIO5 = "On"  (heater indicator)
+    PB_LED_K3 = 2,   // GPIO4 = "Dry"
     PB_LED_COUNT = 3,
+    // Semantic aliases (use these; the K-names are the physical button positions).
+    PB_LED_AUTO = PB_LED_K1,
+    PB_LED_ON   = PB_LED_K2,
+    PB_LED_DRY  = PB_LED_K3,
 } pb_led_id_t;
 
 typedef enum {

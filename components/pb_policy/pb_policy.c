@@ -78,14 +78,17 @@ void pb_policy_tick(void)
         pb_fan_set_level(s_requested_fan);
     }
 
-    // K1 = heat/fault indicator (pb_policy owns LED indication; pb_heater no
-    // longer drives any GPIO LED). Fault outranks heat: a latched safety trip
-    // blinks even while airflow keeps cooling the chamber.
+    // "On" LED (K2/GPIO5) = heater indicator, matching the stock panel: solid
+    // while heating, blinking on a latched safety fault (visible even while the
+    // fan keeps cooling a tripped chamber), off otherwise. pb_policy owns all LED
+    // indication; pb_heater drives no GPIO LED. The "Power" light is hardwired on
+    // (not on GPIO6/5/4) and can't be firmware-gated. Auto (K1) / Dry (K3) are
+    // reserved for the mode work in Phase B.
     if (pb_heater_is_faulted() || pb_heater_is_inhibited()) {
-        pb_leds_set(PB_LED_K1, PB_LED_BLINK);
+        pb_leds_set(PB_LED_ON, PB_LED_BLINK);
     } else if (heat) {
-        pb_leds_set(PB_LED_K1, PB_LED_SOLID);
+        pb_leds_set(PB_LED_ON, PB_LED_SOLID);
     } else {
-        pb_leds_set(PB_LED_K1, PB_LED_OFF);
+        pb_leds_set(PB_LED_ON, PB_LED_OFF);
     }
 }
