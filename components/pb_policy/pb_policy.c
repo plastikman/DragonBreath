@@ -50,12 +50,16 @@ void pb_policy_tick(void)
 
     // Post-print cooldown: once the heater has run, keep airflow going after it
     // turns off until the chamber cools below the threshold, then disarm (don't
-    // re-trigger until the next heating session). Smoothed chamber temp; a NAN /
-    // failed reading disarms rather than fanning blindly.
+    // re-trigger until the next heating session). Only trust the smoothed temp if
+    // the latest read was OK — on a sensor fault pb_ntc_smoothed_c() keeps
+    // returning the last (stale) moving average, NOT NaN, which could otherwise
+    // pin the fan on forever. On fault/no-reading, disarm; the heater's own fault
+    // path (pb_heater_is_faulted) still drives airflow if it latches.
     bool cooldown = false;
     if (!heat && s_heated_this_session) {
         float chamber_c = pb_ntc_smoothed_c(PB_NTC_CHAMBER);
-        if (!isnan(chamber_c) && chamber_c > PB_COOLDOWN_TEMP_C) {
+        if (pb_ntc_last_status(PB_NTC_CHAMBER) == PB_NTC_OK
+                && !isnan(chamber_c) && chamber_c > PB_COOLDOWN_TEMP_C) {
             cooldown = true;
         } else {
             s_heated_this_session = false;
