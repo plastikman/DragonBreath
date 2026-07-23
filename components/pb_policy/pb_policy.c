@@ -3,6 +3,7 @@
 #include "pb_heater.h"
 #include "pb_fan.h"
 #include "pb_ntc.h"
+#include "pb_leds.h"
 
 #include "esp_log.h"
 #include <math.h>
@@ -75,5 +76,16 @@ void pb_policy_tick(void)
         pb_fan_set_level(30);
     } else {
         pb_fan_set_level(s_requested_fan);
+    }
+
+    // K1 = heat/fault indicator (pb_policy owns LED indication; pb_heater no
+    // longer drives any GPIO LED). Fault outranks heat: a latched safety trip
+    // blinks even while airflow keeps cooling the chamber.
+    if (pb_heater_is_faulted() || pb_heater_is_inhibited()) {
+        pb_leds_set(PB_LED_K1, PB_LED_BLINK);
+    } else if (heat) {
+        pb_leds_set(PB_LED_K1, PB_LED_SOLID);
+    } else {
+        pb_leds_set(PB_LED_K1, PB_LED_OFF);
     }
 }
