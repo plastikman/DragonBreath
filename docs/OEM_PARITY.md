@@ -4,7 +4,7 @@ DragonBreath is not intended to reproduce the stock firmware byte-for-byte. This
 matrix records which user-visible Panda Breath behaviors are implemented, still
 planned, deliberately changed for safety, or intentionally omitted.
 
-Current as of **v0.3.0**.
+Current as of **v0.4.0**.
 
 | Stock/OEM behavior | DragonBreath status | Notes |
 |---|---|---|

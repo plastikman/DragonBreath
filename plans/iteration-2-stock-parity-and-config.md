@@ -20,13 +20,14 @@ Decisions locked with the user: **phased plan**, **all four buttons usable**
 > **Status (2026-07-24):** Phase 0 ✅ (v0.2.0) · Phase A ✅ (v0.3.0) · Phase B ✅ shipped
 > in v0.3.0 & hardware-validated — **except B2** (thermal-purge + NVS-persisted fault
 > latch), deferred; **B5's params-only NVS persistence, mismarked done in v0.3.0, actually
-> shipped in the Phase C series** · Phase C 🟡 code complete, in review (LED semantics, B5
-> params, and all four buttons landed as three stacked PRs; Panda and devboard
-> functional qualification passed)
+> shipped in v0.4.0** · Phase C ✅ **shipped in v0.4.0 & hardware-validated** (LED
+> semantics, B5 params, and all four buttons + long-press panic-off; real-Panda and
+> devboard-HIL functional benches passed — only the optional scope-grade panic-off
+> latency trace remains, and it is non-blocking characterization)
 > · Phase D 🟡 partial (v2 dashboard covers D2/D3; D4 parity matrix documented; D1 shell open)
 > · Phase E 🟡 partial (release/build CI + host tests + UART dev-board HIL qualified; broader
-> static-analysis/sim and real-Panda matrix open). **Next candidates:** B2 safety hardening,
-> Phase C bench sign-off, or Phase D1 dashboard polish.
+> static-analysis/sim and real-Panda matrix open). **Next candidates:** B2 safety hardening
+> or Phase D1 dashboard polish.
 
 Not covered / explicitly out of scope: stock OEM WebSocket protocol + web UI,
 Bambu binding, and the stock `filtertemp`/`heater_temp` auto parameters
@@ -270,8 +271,8 @@ transport/state adapter.
 
 ## Phase C — Physical buttons (all four)
 
-> 🟡 **Code complete; in review; Panda functional bench passed.** Delivered as three stacked
-> PRs off `main`: **(1)** LED mode semantics — all four LEDs driven from the policy
+> ✅ **Shipped in v0.4.0 & hardware-validated.** Delivered as three stacked
+> PRs off `main` (#15 LEDs, #18 params, #17 buttons): **(1)** LED mode semantics — all four LEDs driven from the policy
 > snapshot (Power = device-alive/fault, On/Auto/Dry = active mode, Auto slow-blinks
 > when armed-but-waiting); **(2)** B5's remembered mode parameters (`md_last`,
 > `md_auto_tgt`, `md_auto_bed`, `md_dry_tgt`, `md_dry_hrs`) persisted via a serialized
@@ -476,9 +477,9 @@ traceable to the tagged source.
 
 ## Delivery order
 1. Phase 0: identity and release correctness. ✅ **Done — v0.2.0** (PRs #3, #4, #7).
-2. Phase A: bounded settings and verified LEDs.
-3. Phase B: authoritative state/API, modes, leases, thermal purge, and persistent faults.
-4. Phase C: all-four-button physical control.
+2. Phase A: bounded settings and verified LEDs. ✅ **Done — v0.3.0**.
+3. Phase B: authoritative state/API, modes, leases, thermal purge, and persistent faults. ✅ **Done — v0.3.0** (except **B2** thermal-purge + NVS fault latch, deferred).
+4. Phase C: all-four-button physical control. ✅ **Done — v0.4.0** (#15, #18, #17).
 5. Phase D: responsive dashboard and remaining intentional parity.
 6. Phase E: complete CI, simulation, dev-board HIL, and real-device qualification.
 7. Extract/version the shared core after the state/API seams stabilize.

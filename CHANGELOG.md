@@ -7,6 +7,14 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-24
+
+Phase C — the physical front panel comes alive. All four buttons and all four
+status LEDs are wired to the authoritative control state, so the device is fully
+operable and legible from the panel alone, with a long-press panic-off. Also
+lands the mode-parameter persistence that v0.3.0 documented but never shipped,
+plus the serial hardware-in-the-loop harness and an explicit OEM-parity matrix.
+
 ### Added
 - **Front-panel buttons (`pb_buttons`).** All four buttons (Power, Auto, On, Dry)
   are polled at 10 ms with 20 ms debounce and short/long-press detection. A short
@@ -66,6 +74,11 @@ below into the GitHub Release notes.
   and GPIO0 — those are the zero-cross detector and the chamber NTC. The table now
   matches the bench-probed map already in `pb_board.h` (buttons on 9/8/10/2, Power
   LED on 21) and documents the strapping-pin caveat.
+- **Wrap-safe control-loop scheduling.** The notify-aware control tick compared
+  FreeRTOS tick counts with an unsigned deadline test, which inverts across the
+  32-bit tick wrap (~497 days at 100 Hz) and would let the loop burst-tick for up
+  to one period. Now uses signed tick deltas, so the "absolute deadline, never
+  accelerates" invariant holds across a wrap.
 
 ## [0.3.0] - 2026-07-23
 
