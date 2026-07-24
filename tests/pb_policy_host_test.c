@@ -324,7 +324,7 @@ static void test_external_fault_sync_off_and_clear(void)
     CHECK(strcmp(snap.fault_reason, "external trip") == 0);
     CHECK(!snap.lease_active);
     CHECK(led_pattern[PB_LED_POWER] == PB_LED_BLINK);
-    CHECK(led_pattern[PB_LED_ON] == PB_LED_BLINK);
+    CHECK(led_pattern[PB_LED_ON] == PB_LED_OFF);   // fault forced mode OFF
 
     // OFF is unconditional even while the underlying safety fault remains latched.
     pb_policy_set_mode_off(PB_SOURCE_WEB);
@@ -343,6 +343,61 @@ static void test_external_fault_sync_off_and_clear(void)
     CHECK(snap.source == PB_SOURCE_WEB);
     CHECK(!snap.fault_latched);
     CHECK(snap.effective_target_c == 0.0f);
+}
+
+// Power = device alive (blink on fault); On/Auto/Dry each carry their own mode,
+// with Auto distinguishing armed-but-waiting from actually engaged.
+static void test_panel_leds_track_mode(void)
+{
+    reset_fixture();
+    pb_policy_tick();
+    CHECK(led_pattern[PB_LED_POWER] == PB_LED_SOLID);
+    CHECK(led_pattern[PB_LED_ON] == PB_LED_OFF);
+    CHECK(led_pattern[PB_LED_AUTO] == PB_LED_OFF);
+    CHECK(led_pattern[PB_LED_DRY] == PB_LED_OFF);
+
+    CHECK(pb_policy_set_power_on(
+        45.0f, PB_SOURCE_WEB, "tab", 1, NULL) == PB_POLICY_OK);
+    pb_policy_tick();
+    CHECK(led_pattern[PB_LED_ON] == PB_LED_SOLID);
+    CHECK(led_pattern[PB_LED_AUTO] == PB_LED_OFF);
+    CHECK(led_pattern[PB_LED_DRY] == PB_LED_OFF);
+
+    // AUTO armed but not engaged (no printer link) -> slow blink, not solid.
+    pb_policy_set_mode_off(PB_SOURCE_WEB);
+    CHECK(pb_policy_set_auto(
+        60.0f, 100.0f, PB_SOURCE_WEB, PB_POLICY_REVISION_ANY) == PB_POLICY_OK);
+    pb_policy_set_env(20.0f, false);
+    pb_policy_tick();
+    CHECK(led_pattern[PB_LED_AUTO] == PB_LED_BLINK_SLOW);
+    CHECK(led_pattern[PB_LED_ON] == PB_LED_OFF);
+
+    pb_policy_set_env(105.0f, true);
+    pb_policy_tick();
+    CHECK(snapshot().auto_engaged);
+    CHECK(led_pattern[PB_LED_AUTO] == PB_LED_SOLID);
+
+    pb_policy_set_mode_off(PB_SOURCE_WEB);
+    CHECK(pb_policy_start_drying(
+        55.0f, 2, PB_SOURCE_WEB, PB_POLICY_REVISION_ANY) == PB_POLICY_OK);
+    pb_policy_tick();
+    CHECK(led_pattern[PB_LED_DRY] == PB_LED_SOLID);
+    CHECK(led_pattern[PB_LED_AUTO] == PB_LED_OFF);
+    CHECK(led_pattern[PB_LED_POWER] == PB_LED_SOLID);
+
+    // A fault forces mode OFF, so every mode LED goes dark and Power blinks.
+    pb_heater_emergency_off("test trip");
+    pb_policy_tick();
+    CHECK(led_pattern[PB_LED_POWER] == PB_LED_BLINK);
+    CHECK(led_pattern[PB_LED_ON] == PB_LED_OFF);
+    CHECK(led_pattern[PB_LED_AUTO] == PB_LED_OFF);
+    CHECK(led_pattern[PB_LED_DRY] == PB_LED_OFF);
+
+    // A permanent inhibit reports as a fault too, so Power must keep blinking.
+    heater_fault = false;
+    heater_inhibited = true;
+    pb_policy_tick();
+    CHECK(led_pattern[PB_LED_POWER] == PB_LED_BLINK);
 }
 
 static void test_fault_clear_requires_current_revision(void)
@@ -371,6 +426,7 @@ int main(void)
     test_local_power_limit_expires_off_without_fault();
     test_external_fault_sync_off_and_clear();
     test_fault_clear_requires_current_revision();
+    test_panel_leds_track_mode();
     puts("pb_policy host tests: PASS");
     return 0;
 }

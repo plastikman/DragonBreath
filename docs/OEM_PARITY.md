@@ -15,7 +15,7 @@ Current as of **v0.3.0**.
 | Sensor-fault and over-temperature shutdown | **Implemented** | Heater fails closed; fixed 85 °C chamber and 105 °C PTC cutoffs are not user-configurable. |
 | Fan follows heater | **Implemented** | TRIAC is held on/off and never phase-angle PWM'd. |
 | Residual-heat fan purge | **Partial** | Current cooldown is session-gated. A persisted, opt-in temperature-latched policy is planned; the default will remain session-gated so a warm idle chamber does not start the fan unexpectedly. Fault airflow remains unconditional. |
-| Front-panel mode LEDs | **Partial** | The four-output pattern driver is implemented. On, plus release-only Power, are solid while a heat target is armed and blink on fault. Auto/Dry are initialized off but receive no policy updates yet. |
+| Front-panel mode LEDs | **Implemented** | All four outputs are driven from the authoritative policy snapshot: Power is solid whenever the device is up and blinks on fault; On, Auto, and Dry each light for their own mode. Auto slow-blinks when armed but not engaged (no Moonraker link, or bed below the threshold). Power is release-only — GPIO21 is also the serial console TX. |
 | Front-panel buttons | **Planned (mapped only)** | Power GPIO9, Auto GPIO8, On GPIO10, and Dry GPIO2 were live-probed active-low. No GPIO setup, polling, debounce, event handling, or actions exist today; presses do nothing until Phase C. |
 | Local status/configuration UI | **Implemented** | Responsive work continues, but manual, automatic, drying, safety settings, setup, and OTA controls are present. |
 | Wi-Fi captive setup and mDNS | **Implemented** | Product identity is DragonBreath; reachable as `dragonbreath.local` when mDNS works. |
