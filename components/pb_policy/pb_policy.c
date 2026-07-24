@@ -449,13 +449,21 @@ void pb_policy_tick(void)
     if (want_airflow && fan < 30) fan = 30;
     pb_fan_set_level(fan);
 
-    // Preserve Phase A's panel semantics through the state-machine rewrite.
-    // The Power LED is release-only because GPIO21 is also console TX; the On
-    // LED mirrors it until the later mode/button work owns Auto/On/Dry.
-    pb_led_pattern_t heat_pat =
-        faulted ? PB_LED_BLINK : heat ? PB_LED_SOLID : PB_LED_OFF;
-    pb_leds_set(PB_LED_POWER, heat_pat);
-    pb_leds_set(PB_LED_ON, heat_pat);
+    // Front-panel indication. Power is the "device alive / something's wrong"
+    // light; On/Auto/Dry each carry their own mode, so the panel alone tells you
+    // which mode is active. `faulted` is pb_heater_is_faulted(), which already
+    // covers a permanent inhibit as well as a latched trip. A fault forces
+    // mode=OFF above, so the mode LEDs go dark on their own.
+    // Power is release-only: GPIO21 is also the console TX pin (CONFIG_PB_POWER_LED).
+    pb_leds_set(PB_LED_POWER, faulted ? PB_LED_BLINK : PB_LED_SOLID);
+    pb_leds_set(PB_LED_ON, s.mode == PB_MODE_POWER_ON ? PB_LED_SOLID : PB_LED_OFF);
+    // AUTO distinguishes armed-but-waiting (no Moonraker link, or bed below the
+    // threshold) from actually driving heat — the most useful thing the panel says.
+    pb_leds_set(PB_LED_AUTO,
+                s.mode != PB_MODE_AUTO  ? PB_LED_OFF
+                : s.auto_engaged        ? PB_LED_SOLID
+                                        : PB_LED_BLINK_SLOW);
+    pb_leds_set(PB_LED_DRY, s.mode == PB_MODE_DRYING ? PB_LED_SOLID : PB_LED_OFF);
 
     if (local_limit_expired)
         ESP_LOGW(TAG, "local POWER_ON limit expired; mode set OFF");

@@ -7,6 +7,40 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+- **Serial hardware-in-the-loop harness (`pb_hil` / `tools/hil.py`).** A
+  line-delimited JSON console for injecting chamber/PTC readings, sensor faults,
+  printer environment, and zero-cross events, and for reading back heater demand,
+  fan state, LEDs, mode, lease, and fault state. Ships with an isolated ESP32-C3
+  dev-board target whose mains GPIO is **compiled out**, so it is structurally
+  incapable of energizing Panda hardware, plus scripted scenarios, console
+  capture, and JSON pass/fail reports. A non-heating UART profile for the real
+  Panda is documented as the pre-release qualification gate. (#14)
+- **OEM parity matrix (`docs/OEM_PARITY.md`).** Tracks every user-visible stock
+  Panda Breath behavior as implemented, partial, planned, intentionally changed,
+  intentionally omitted, or unverified — so deliberate deviations are
+  distinguishable from gaps. (#12)
+
+### Changed
+- **Front-panel LEDs now show the active mode.** All four outputs are driven from
+  the authoritative policy snapshot instead of Power and On duplicating a single
+  "heating" signal: Power is solid whenever the device is up and blinks on fault,
+  while On, Auto, and Dry each light for their own mode. Auto slow-blinks when
+  armed but not engaged (no Moonraker link, or bed below the threshold), so the
+  panel distinguishes "waiting" from "heating". Power remains release-only —
+  GPIO21 is also the serial console TX.
+
+### Fixed
+- **Automatic and drying controls work from the dashboard.** v0.3.0 shipped both
+  modes in the state machine and API but the UI could not reliably drive them.
+  The cards now submit correctly, their input bounds match the policy's own
+  limits, and automatic status refreshes from live state rather than the value
+  last typed. (#13)
+- **`docs/HARDWARE.md` GPIO map corrected.** It still described buttons on GPIO7
+  and GPIO0 — those are the zero-cross detector and the chamber NTC. The table now
+  matches the bench-probed map already in `pb_board.h` (buttons on 9/8/10/2, Power
+  LED on 21) and documents the strapping-pin caveat.
+
 ## [0.3.0] - 2026-07-23
 
 Iteration-2 core: an authoritative device-side control state machine, a
