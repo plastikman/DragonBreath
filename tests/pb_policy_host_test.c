@@ -747,6 +747,7 @@ static void test_button_invalidates_remote_lease(void)
     CHECK(pb_policy_set_power_on(
         45.0f, PB_SOURCE_KLIPPER, "klippy", 1, &lease) == PB_POLICY_OK);
     CHECK(snapshot().lease_active);
+    wake_calls = 0;
 
     // A physical OFF must drop the lease and beat any later heartbeat.
     pb_policy_on_button(PB_BUTTON_POWER, PB_BUTTON_SHORT);
@@ -754,6 +755,45 @@ static void test_button_invalidates_remote_lease(void)
     CHECK(pb_policy_heartbeat(&lease) == PB_POLICY_STALE_LEASE);
     CHECK(snapshot().source == PB_SOURCE_BUTTON);
     CHECK(wake_calls == 1);
+}
+
+static void test_remote_commands_wake_only_when_accepted(void)
+{
+    reset_fixture();
+    pb_policy_load_params();
+
+    CHECK(pb_policy_set_power_on(
+        45.0f, PB_SOURCE_WEB, "tab", PB_POLICY_REVISION_ANY, NULL)
+        == PB_POLICY_OK);
+    CHECK(wake_calls == 1);
+
+    pb_policy_set_mode_off(PB_SOURCE_WEB);
+    CHECK(wake_calls == 2);
+
+    CHECK(pb_policy_set_auto(
+        50.0f, 60.0f, PB_SOURCE_WEB, PB_POLICY_REVISION_ANY)
+        == PB_POLICY_OK);
+    CHECK(wake_calls == 3);
+
+    pb_policy_set_mode_off(PB_SOURCE_KLIPPER);
+    CHECK(wake_calls == 4);
+
+    CHECK(pb_policy_start_drying(
+        50.0f, 2, PB_SOURCE_KLIPPER, PB_POLICY_REVISION_ANY)
+        == PB_POLICY_OK);
+    CHECK(wake_calls == 5);
+
+    // Rejected commands do not change policy/output state and must not wake.
+    heater_fault = true;
+    heater_reason = "test fault";
+    CHECK(pb_policy_set_power_on(
+        45.0f, PB_SOURCE_WEB, "tab", PB_POLICY_REVISION_ANY, NULL)
+        == PB_POLICY_FAULT_LATCHED);
+    CHECK(wake_calls == 5);
+
+    CHECK(pb_policy_clear_fault(
+        PB_SOURCE_WEB, PB_POLICY_REVISION_ANY) == PB_POLICY_OK);
+    CHECK(wake_calls == 6);
 }
 
 static void test_button_rejection_is_logged_without_wake(void)
@@ -849,6 +889,7 @@ int main(void)
     test_button_short_toggles_modes();
     test_button_power_short_while_off_does_not_bump_revision();
     test_button_invalidates_remote_lease();
+    test_remote_commands_wake_only_when_accepted();
     test_button_rejection_is_logged_without_wake();
     test_button_long_press_panic_off();
     test_button_power_long_clears_or_holds_fault();

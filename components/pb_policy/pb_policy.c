@@ -429,6 +429,7 @@ pb_policy_result_t pb_policy_set_power_on(
     s.params.manual_target_c = s.requested_target_c;   // post-clamp
     s.params_dirty = true;
     xSemaphoreGive(s_lock);
+    wake_control_task();
     params_notify();
     return PB_POLICY_OK;
 }
@@ -464,6 +465,7 @@ pb_policy_result_t pb_policy_set_auto(
     s.params.auto_bed_threshold_c = bed_threshold_c;
     s.params_dirty = true;
     xSemaphoreGive(s_lock);
+    wake_control_task();
     params_notify();
     return PB_POLICY_OK;
 }
@@ -502,6 +504,7 @@ pb_policy_result_t pb_policy_start_drying(
     s.params.dry_hours = hours;
     s.params_dirty = true;
     xSemaphoreGive(s_lock);
+    wake_control_task();
     params_notify();
     return PB_POLICY_OK;
 }
@@ -512,6 +515,7 @@ void pb_policy_set_mode_off(pb_source_t source)
     xSemaphoreTake(s_lock, portMAX_DELAY);
     set_off_locked(source);
     xSemaphoreGive(s_lock);
+    wake_control_task();
 }
 
 void pb_policy_stop_drying(pb_source_t source)
@@ -567,6 +571,7 @@ pb_policy_result_t pb_policy_clear_fault(
     s.last_faulted = false;
     set_off_locked(source);
     xSemaphoreGive(s_lock);
+    wake_control_task();
     return PB_POLICY_OK;
 }
 
@@ -649,7 +654,6 @@ void pb_policy_on_button(pb_button_id_t id, pb_button_event_t ev)
             // A physical actor always wins, so revision-any is correct here.
             pb_policy_result_t r =
                 pb_policy_clear_fault(PB_SOURCE_BUTTON, PB_POLICY_REVISION_ANY);
-            if (r == PB_POLICY_OK) wake_control_task();
             pv_evlog_add("btn: power long -> clear fault (%s)",
                          pb_policy_result_str(r));
             return;
@@ -667,7 +671,6 @@ void pb_policy_on_button(pb_button_id_t id, pb_button_event_t ev)
         case PB_BUTTON_ON:
             r = button_toggle_mode(PB_MODE_POWER_ON);
             if (r == PB_POLICY_OK) {
-                wake_control_task();
                 pv_evlog_add("btn: on -> %s",
                              pb_policy_mode_str(pb_policy_get_mode()));
             } else {
@@ -678,7 +681,6 @@ void pb_policy_on_button(pb_button_id_t id, pb_button_event_t ev)
         case PB_BUTTON_AUTO:
             r = button_toggle_mode(PB_MODE_AUTO);
             if (r == PB_POLICY_OK) {
-                wake_control_task();
                 pv_evlog_add("btn: auto -> %s",
                              pb_policy_mode_str(pb_policy_get_mode()));
             } else {
@@ -689,7 +691,6 @@ void pb_policy_on_button(pb_button_id_t id, pb_button_event_t ev)
         case PB_BUTTON_DRY:
             r = button_toggle_mode(PB_MODE_DRYING);
             if (r == PB_POLICY_OK) {
-                wake_control_task();
                 pv_evlog_add("btn: dry -> %s",
                              pb_policy_mode_str(pb_policy_get_mode()));
             } else {
@@ -704,7 +705,6 @@ void pb_policy_on_button(pb_button_id_t id, pb_button_event_t ev)
                 pv_evlog_add("btn: power (already off)");
             } else {
                 pb_policy_set_mode_off(PB_SOURCE_BUTTON);
-                wake_control_task();
                 pv_evlog_add("btn: power -> off");
             }
             break;

@@ -59,9 +59,9 @@ static volatile bool s_net_up = false;
 // failed to initialize (its internal state/mutex may be unset).
 static volatile bool s_mk_up = false;
 
-// Control-task handle, so accepted panel actions can update outputs/LEDs without
-// waiting up to a full periodic tick. Panic-off uses the same prompt path to
-// drop the SSR.
+// Control-task handle, so accepted policy commands can update outputs/LEDs
+// without waiting up to a full periodic tick. Panic-off uses the same prompt
+// path to drop the SSR.
 static TaskHandle_t s_control_task;
 
 // pb_policy wake callback: a single notification. Runs on whatever task
@@ -223,7 +223,7 @@ static void control_task(void *arg)
         }
 
         // Wait for the next periodic deadline, but wake early on a notification
-        // (an accepted panel action or policy panic-off). Guardrails so
+        // (an accepted control command or policy panic-off). Guardrails so
         // notifications can never drag or accelerate the safety schedule: the
         // deadline is ABSOLUTE; a notify wake runs one extra full tick against
         // the SAME deadline; only a timeout advances it (with an overrun
@@ -268,7 +268,7 @@ void app_main(void)
     // earlier, and doing so would let a press arm a target before this task —
     // the sole actuator — is even running.
     xTaskCreate(control_task, "pb_control", 4096, NULL, 10, &s_control_task);
-    pb_policy_set_wake_cb(control_wake);     // panel actions can now wake the loop
+    pb_policy_set_wake_cb(control_wake);     // accepted commands can now wake the loop
     ESP_LOGI(TAG, "control loop running; heater held OFF (bring-up: no auto-heat)");
 
     // Bring up networking. If a start call blocks under a flaky link, the control

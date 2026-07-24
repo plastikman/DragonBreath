@@ -182,10 +182,10 @@ void pb_policy_on_button(pb_button_id_t id, pb_button_event_t ev);
 // drops the SSR without waiting for the next periodic tick.
 void pb_policy_request_panic_off(pb_source_t source, const char *reason);
 
-// Callback invoked (outside any policy lock) whenever an accepted panel action
-// or safety transition needs the control task to run a tick promptly. Keep it
-// ISR-light: a single task notification. Optional; if unset, the change is
-// picked up on the next periodic tick.
+// Callback invoked (outside any policy lock) whenever an accepted control
+// command or safety transition needs the control task to run a tick promptly.
+// Keep it ISR-light: a single task notification. Optional; if unset, the change
+// is picked up on the next periodic tick.
 typedef void (*pb_policy_wake_fn)(void);
 void pb_policy_set_wake_cb(pb_policy_wake_fn fn);
 
