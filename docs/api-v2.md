@@ -17,6 +17,9 @@ routes require `X-DragonBreath-Auth`; the device does not enable CORS.
   and when `state_revision` changes. A full `telemetry` snapshot is sent every
   two seconds between transitions. At most two streams are held concurrently.
 - `GET /api/v2/health` — uptime, heap, Wi-Fi RSSI/channel and SSE client count.
+- `GET /api/v2/logs` — the in-memory event ring (newest first) as
+  `{"api_version":2,"count":N,"entries":[{"ms":<millis since boot>,"text":"…"}]}`.
+  Open (read-only, no side effects).
 
 The complete snapshot, not locally remembered intent, is the source of truth:
 
@@ -180,6 +183,19 @@ These predate/sit beside the versioned control surface and are stable:
   (the max-target ceiling can never exceed the absolute cap, the comms watchdog
   stays within its min/max) and the clamped effective values are echoed back.
   The fixed 105 °C PTC / 85 °C chamber cutoffs are **not** settable.
+- `POST /api/v2/restart` — authenticated soft reboot. **Refused while the heater
+  is armed/on** (HTTP 409 `heater_active`). Returns `{"ok":true}` then reboots
+  once the response has flushed.
+- `POST /api/v2/factory-reset` — authenticated. **Refused while heating.** Requires
+  explicit confirmation `confirm=factory-reset` (query or urlencoded body) or it
+  returns HTTP 400 `confirmation_required`. On confirm it erases the whole
+  `app_nvs` namespace (Wi-Fi credentials, Moonraker host, control token, safety
+  limits), returns `{"ok":true}`, and reboots — the device comes back up in AP
+  provisioning mode.
+- `POST /api/v2/token` — authenticated. Body `{"token":"<=64 chars>"}` sets the
+  control token; `{"token":""}` / `{"token":null}` / `{}` clears it. The secret is
+  never echoed; the response is `{"ok":true,"token_set":<bool>}`. Once a token is
+  set, every mutating request must carry it in `X-DragonBreath-Auth`.
 - `POST /update` — authenticated DragonBreath application-image OTA. Streams the
   `.bin` into the inactive slot, verifies it (image checksum + `dragonbreath`
   project identity — foreign images are rejected), reports the SHA-256 it

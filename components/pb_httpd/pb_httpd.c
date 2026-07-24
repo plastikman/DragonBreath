@@ -3,6 +3,7 @@
 #include "pb_heater.h"
 #include "pb_ntc.h"
 #include "pb_policy.h"
+#include "pv_evlog.h"
 
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -785,12 +786,155 @@ static esp_err_t update_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// True (and already responded with 409) when a mutating maintenance action must
+// be refused because the heater is armed/on — mirrors the /update guard so a
+// reboot/erase can never happen mid-heat with the SSR in an undefined state.
+static bool refuse_while_heating(httpd_req_t *req, const char *message)
+{
+    pb_policy_snapshot_t snap;
+    pb_policy_get_snapshot(&snap);
+    if (snap.heater_output || snap.effective_target_c > 0.0f) {
+        api_error(req, "409 Conflict", "heater_active", message, NULL);
+        return true;
+    }
+    return false;
+}
+
+// POST /api/v2/restart — auth-gated, refused while heating. Responds, then reboots
+// from a delayed task so the JSON flushes before the socket is torn down.
+static esp_err_t restart_post(httpd_req_t *req)
+{
+    if (auth_reject(req)) return ESP_OK;
+    if (refuse_while_heating(req, "turn the heater off before restarting"))
+        return ESP_OK;
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_sendstr(req, "{\"ok\":true,\"message\":\"restarting\"}");
+    xTaskCreate(ota_reboot_task, "db_restart", 2048, NULL, 5, NULL);
+    return ESP_OK;
+}
+
+// POST /api/v2/factory-reset?confirm=factory-reset — auth-gated, refused while
+// heating, and requires the explicit confirm token (query or urlencoded body).
+// Erases every key in the app_nvs namespace (Wi-Fi creds, Moonraker host, control
+// token, safety limits) so the device reboots back to AP provisioning.
+static esp_err_t factory_reset_post(httpd_req_t *req)
+{
+    if (auth_reject(req)) return ESP_OK;
+    if (refuse_while_heating(req, "turn the heater off before a factory reset"))
+        return ESP_OK;
+
+    // Explicit confirmation gate: confirm=factory-reset in the query, or in an
+    // application/x-www-form-urlencoded body.
+    bool confirmed = false;
+    char q[128] = {0};
+    char v[32];
+    if (httpd_req_get_url_query_str(req, q, sizeof q) == ESP_OK
+            && httpd_query_key_value(q, "confirm", v, sizeof v) == ESP_OK
+            && strcmp(v, "factory-reset") == 0)
+        confirmed = true;
+    if (!confirmed && req->content_len > 0) {
+        int r = httpd_req_recv(req, q, sizeof q - 1);
+        if (r > 0) {
+            q[r] = '\0';
+            if (httpd_query_key_value(q, "confirm", v, sizeof v) == ESP_OK
+                    && strcmp(v, "factory-reset") == 0)
+                confirmed = true;
+        }
+    }
+    if (!confirmed)
+        return api_error(req, "400 Bad Request", "confirmation_required",
+                         "factory reset requires confirm=factory-reset", NULL);
+
+    nvs_handle_t h;
+    if (nvs_open("app_nvs", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_erase_all(h);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    ESP_LOGW(TAG, "factory reset: app_nvs erased; rebooting to AP provisioning");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_sendstr(req,
+        "{\"ok\":true,\"message\":\"factory reset; rebooting to AP provisioning\"}");
+    xTaskCreate(ota_reboot_task, "db_factory", 2048, NULL, 5, NULL);
+    return ESP_OK;
+}
+
+// GET /api/v2/logs — read-only (open, like /state). Snapshots the pv_evlog ring
+// (newest first) as JSON. Never energizes the heater or feeds the watchdog.
+static esp_err_t logs_get(httpd_req_t *req)
+{
+    pv_evlog_entry_t *entries = calloc(PV_EVLOG_MAX_ENTRIES, sizeof *entries);
+    if (!entries) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
+        return ESP_FAIL;
+    }
+    size_t n = pv_evlog_snapshot(entries, PV_EVLOG_MAX_ENTRIES);
+    cJSON *o = cJSON_CreateObject();
+    if (!o) { free(entries); httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
+    cJSON_AddNumberToObject(o, "api_version", API_VERSION);
+    cJSON_AddNumberToObject(o, "count", n);
+    cJSON *arr = cJSON_AddArrayToObject(o, "entries");
+    for (size_t i = 0; arr && i < n; i++) {
+        cJSON *e = cJSON_CreateObject();
+        if (!e) break;
+        cJSON_AddNumberToObject(e, "ms", entries[i].ms);
+        cJSON_AddStringToObject(e, "text", entries[i].text);
+        cJSON_AddItemToArray(arr, e);
+    }
+    free(entries);
+    return send_json(req, o);
+}
+
+// POST /api/v2/token — auth-gated. Body {"token":"..."} sets the control token
+// (<=64 chars); {"token":""} / {"token":null} / {} clears it. Setting a token
+// means subsequent mutating requests must send it (the caller keeps using it).
+// The secret is never echoed back — only whether one is now configured.
+static esp_err_t token_post(httpd_req_t *req)
+{
+    if (auth_reject(req)) return ESP_OK;
+    cJSON *root = recv_json(req);
+    if (!root)
+        return api_error(req, "400 Bad Request", "invalid_command", "invalid JSON body", NULL);
+    cJSON *t = cJSON_GetObjectItemCaseSensitive(root, "token");
+    const char *newtok = cJSON_IsString(t) ? t->valuestring : NULL;
+    if (newtok && strlen(newtok) > 64) {
+        cJSON_Delete(root);
+        return api_error(req, "400 Bad Request", "invalid_command",
+                         "token must be at most 64 characters", NULL);
+    }
+
+    nvs_handle_t h;
+    if (nvs_open("app_nvs", NVS_READWRITE, &h) != ESP_OK) {
+        cJSON_Delete(root);
+        return api_error(req, "500 Internal Server Error", "internal", "nvs open failed", NULL);
+    }
+    esp_err_t err = (newtok && newtok[0])
+        ? nvs_set_str(h, "ctl_token", newtok)
+        : nvs_erase_key(h, "ctl_token");
+    if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;   // clearing an already-empty token
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    cJSON_Delete(root);
+    if (err != ESP_OK)
+        return api_error(req, "500 Internal Server Error", "internal", "nvs write failed", NULL);
+
+    char cur[65];
+    pb_httpd_ctl_token(cur, sizeof cur);
+    cJSON *o = cJSON_CreateObject();
+    if (!o) return ESP_FAIL;
+    cJSON_AddBoolToObject(o, "ok", true);
+    cJSON_AddBoolToObject(o, "token_set", cur[0] != '\0');
+    return send_json(req, o);
+}
+
 esp_err_t pb_httpd_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.lru_purge_enable = true;
     cfg.uri_match_fn = httpd_uri_match_wildcard;   // lets pb_portal add a "/*" captive catch-all
-    cfg.max_uri_handlers = 16;                     // 15 used + 1 spare
+    cfg.max_uri_handlers = 20;                     // 19 used + 1 spare
     // The OTA handler hashes the image (mbedtls) with a 1 KB read buffer + the
     // app descriptor on-stack, which overflows the 4 KB default httpd task stack
     // (stack-protection panic). Give it headroom.
@@ -815,6 +959,10 @@ esp_err_t pb_httpd_start(void)
     httpd_uri_t upd    = { .uri = "/update",           .method = HTTP_POST, .handler = update_post };
     httpd_uri_t setg   = { .uri = "/settings",         .method = HTTP_GET,  .handler = settings_get };
     httpd_uri_t setp   = { .uri = "/settings",         .method = HTTP_POST, .handler = settings_post };
+    httpd_uri_t logs   = { .uri = "/api/v2/logs",      .method = HTTP_GET,  .handler = logs_get };
+    httpd_uri_t rst    = { .uri = "/api/v2/restart",   .method = HTTP_POST, .handler = restart_post };
+    httpd_uri_t frst   = { .uri = "/api/v2/factory-reset", .method = HTTP_POST, .handler = factory_reset_post };
+    httpd_uri_t tok    = { .uri = "/api/v2/token",     .method = HTTP_POST, .handler = token_post };
     httpd_register_uri_handler(s_server, &info);
     httpd_register_uri_handler(s_server, &state);
     httpd_register_uri_handler(s_server, &cmd);
@@ -824,7 +972,11 @@ esp_err_t pb_httpd_start(void)
     httpd_register_uri_handler(s_server, &upd);
     httpd_register_uri_handler(s_server, &setg);
     httpd_register_uri_handler(s_server, &setp);
-    ESP_LOGI(TAG, "HTTP API v2 up :80 (info/state/events/health; command/heartbeat; settings; OTA /update)");
+    httpd_register_uri_handler(s_server, &logs);
+    httpd_register_uri_handler(s_server, &rst);
+    httpd_register_uri_handler(s_server, &frst);
+    httpd_register_uri_handler(s_server, &tok);
+    ESP_LOGI(TAG, "HTTP API v2 up :80 (info/state/events/health/logs; command/heartbeat/restart/factory-reset/token; settings; OTA /update)");
     return ESP_OK;
 }
 

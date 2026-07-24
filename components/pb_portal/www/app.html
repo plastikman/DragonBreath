@@ -218,6 +218,43 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
 .settings-links{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .settings-links .btn{ gap: 6px; text-decoration: none; }
 
+/* ---- U2 [P1] fix: keep each control screen's primary action visible at compact
+   size. The controls scroll inside the screen's own single scroll (.page-only),
+   while the action+feedback stay pinned to the bottom — no nested scrollbar. ---- */
+.mode-footer{ position: sticky; bottom: 0; margin-top: auto; z-index: 3;
+  display: flex; flex-direction: column; gap: 4px; padding-top: 8px;
+  background: linear-gradient(to top, var(--card) 78%, transparent); }
+.mode-footer .mode-action{ margin-top: 0; }
+
+/* ---- U3 Settings: a single scrolling column of sections; each section is a
+   bordered block using the existing token kit. ---- */
+.settings{ flex-direction: column; gap: 12px; max-width: 560px; width: 100%; }
+.set-card{ display: flex; flex-direction: column; gap: 9px;
+  padding: 12px; border: 1px solid var(--border); border-radius: 5px;
+  background: color-mix(in oklab, var(--foreground) 3%, transparent); }
+.set-card h3{ margin: 0; color: var(--muted-foreground); font-size: 11px;
+  font-weight: 600; text-transform: uppercase; }
+.set-head-row{ display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.set-note{ margin: 0; color: var(--muted-foreground); font-size: 12px; }
+.set-note.is-warn{ color: var(--destructive); }
+.set-row{ display: flex; flex-wrap: wrap; gap: 8px; }
+.set-row .btn{ flex: 1; min-width: 120px; }
+.form-input{ appearance: none; display: block; width: 100%; min-height: 34px;
+  padding: 0 10px; border: 1px solid var(--input); border-radius: var(--radius-lg);
+  color: var(--foreground); background: var(--secondary); font: inherit; }
+.form-input:focus-visible{ outline: 2px solid var(--ring); outline-offset: 1px; }
+.set-info{ margin: 0; display: grid; gap: 4px; }
+.set-info > div{ display: flex; justify-content: space-between; gap: 10px; font-size: 12px; }
+.set-info dt{ color: var(--muted-foreground); }
+.set-info dd{ margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all; text-align: right; }
+.log-list{ display: flex; flex-direction: column; gap: 2px; max-height: 220px;
+  overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+.log-list .log-row{ display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--border); }
+.log-list .log-row:last-child{ border-bottom: 0; }
+.log-list .log-t{ flex: none; color: var(--muted-foreground); }
+.log-list .log-m{ min-width: 0; word-break: break-word; }
+
 /* ---- Compact tile (~439x329) + narrow iframe: prioritize temp/PTC/state/graph/Stop. ---- */
 @container (max-width: 600px){
   .shell{ grid-template: 39px minmax(0,1fr) / 43px minmax(0,1fr); }
@@ -244,6 +281,9 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
   .mode-action .btn{ min-height: 42px; font-size: 14px; }
   .presets{ grid-template-columns: repeat(3, 1fr); }
   .ctl-head .ctl-hint{ display: none; }
+  .settings{ gap: 8px; }
+  .set-card{ padding: 9px; gap: 7px; }
+  .log-list{ max-height: 150px; }
 }
 </style>
 </head>
@@ -357,8 +397,10 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
           <button class="btn btn-sm" type="button" data-preset="man,70">70 °C</button>
         </div>
         <div class="mode-status" id="m-status"></div>
-        <div class="mode-action"><button class="btn btn-primary btn-block" type="button" id="m-action"><svg class="icon"><use href="#i-play"/></svg> <span>Start heating</span></button></div>
-        <div class="mode-feedback" id="m-msg" role="status" aria-live="polite"></div>
+        <div class="mode-footer">
+          <div class="mode-action"><button class="btn btn-primary btn-block" type="button" id="m-action"><svg class="icon"><use href="#i-play"/></svg> <span>Start heating</span></button></div>
+          <div class="mode-feedback" id="m-msg" role="status" aria-live="polite"></div>
+        </div>
       </section>
 
       <!-- Automatic: follow the printer bed above a threshold (auto command). -->
@@ -389,8 +431,10 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
           <input class="form-range" id="a-bed-range" type="range" min="40" max="120" step="1" value="100" aria-label="Bed threshold">
         </div>
         <div class="mode-status" id="a-status"></div>
-        <div class="mode-action"><button class="btn btn-primary btn-block" type="button" id="a-action"><svg class="icon"><use href="#i-refresh"/></svg> <span>Follow printer bed</span></button></div>
-        <div class="mode-feedback" id="a-msg" role="status" aria-live="polite"></div>
+        <div class="mode-footer">
+          <div class="mode-action"><button class="btn btn-primary btn-block" type="button" id="a-action"><svg class="icon"><use href="#i-refresh"/></svg> <span>Follow printer bed</span></button></div>
+          <div class="mode-feedback" id="a-msg" role="status" aria-live="polite"></div>
+        </div>
       </section>
 
       <!-- Dry: timed drying cycle (drying_start / drying_stop). -->
@@ -427,20 +471,94 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
           <input class="form-range" id="d-hours-range" type="range" min="1" max="12" step="1" value="6" aria-label="Duration hours">
         </div>
         <div class="mode-status" id="d-status"></div>
-        <div class="mode-action"><button class="btn btn-primary btn-block" type="button" id="d-action"><svg class="icon"><use href="#i-play"/></svg> <span>Start drying</span></button></div>
-        <div class="mode-feedback" id="d-msg" role="status" aria-live="polite"></div>
+        <div class="mode-footer">
+          <div class="mode-action"><button class="btn btn-primary btn-block" type="button" id="d-action"><svg class="icon"><use href="#i-play"/></svg> <span>Start drying</span></button></div>
+          <div class="mode-feedback" id="d-msg" role="status" aria-live="polite"></div>
+        </div>
       </section>
 
-      <!-- Settings: intentionally left as a U3/U4 stub. Do not wire here. -->
-      <section class="page-only" data-page-content="settings" style="flex-direction:column">
-        <h3 id="db-page-heading">Settings</h3>
-        <p id="db-page-copy">Network, sensor calibration, safety limits, LEDs, integrations, logs, and firmware updates.</p>
-        <!-- Reach the existing setup/OTA pages until the full U3 Settings screen lands. -->
-        <div class="settings-links">
-          <a class="btn" href="/setup"><svg class="icon"><use href="#i-wifi"/></svg> Wi-Fi &amp; printer</a>
-          <a class="btn" href="/fw"><svg class="icon"><use href="#i-download"/></svg> Firmware update</a>
+      <!-- Settings (U3): safety limits, network/printer + control token, logs,
+           maintenance. Wired to /settings, /api/v2/token, /api/v2/logs,
+           /api/v2/info, /api/v2/restart, /api/v2/factory-reset. -->
+      <section class="page-only settings" data-page-content="settings">
+
+        <!-- Safety limits & watchdog (GET/POST /settings). -->
+        <div class="set-card">
+          <h3>Safety limits &amp; watchdog</h3>
+          <div class="ctl-group">
+            <div class="ctl-head">
+              <span class="form-label">Max target ceiling</span>
+              <span class="ctl-hint" id="s-max-hint"></span>
+            </div>
+            <div class="touch-adjust">
+              <button class="btn step-btn" type="button" data-sstep="max,-1" aria-label="Decrease max target"><svg class="icon"><use href="#i-minus"/></svg></button>
+              <output class="touch-value" id="s-max-value">70 <span>°C</span></output>
+              <button class="btn step-btn" type="button" data-sstep="max,1" aria-label="Increase max target"><svg class="icon"><use href="#i-plus"/></svg></button>
+            </div>
+            <input class="form-range" id="s-max-range" type="range" min="30" max="70" step="1" value="70" aria-label="Max target ceiling">
+          </div>
+          <div class="ctl-group">
+            <div class="ctl-head">
+              <span class="form-label">Comms watchdog timeout</span>
+              <span class="ctl-hint" id="s-comms-hint"></span>
+            </div>
+            <div class="touch-adjust">
+              <button class="btn step-btn" type="button" data-sstep="comms,-10" aria-label="Decrease timeout"><svg class="icon"><use href="#i-minus"/></svg></button>
+              <output class="touch-value" id="s-comms-value">300 <span>s</span></output>
+              <button class="btn step-btn" type="button" data-sstep="comms,10" aria-label="Increase timeout"><svg class="icon"><use href="#i-plus"/></svg></button>
+            </div>
+            <input class="form-range" id="s-comms-range" type="range" min="10" max="300" step="5" value="300" aria-label="Comms watchdog timeout">
+          </div>
+          <p class="set-note">The fixed 105&nbsp;°C PTC and 85&nbsp;°C chamber cutoffs are hardware safety limits and cannot be changed here.</p>
+          <button class="btn btn-primary btn-block" type="button" id="s-safety-save"><svg class="icon"><use href="#i-thermometer"/></svg> <span>Save safety limits</span></button>
+          <div class="mode-feedback" id="s-safety-msg" role="status" aria-live="polite"></div>
         </div>
-        <p class="stub-note" id="db-stub-note">Full settings arrive in a later update.</p>
+
+        <!-- Network / printer + control token. -->
+        <div class="set-card">
+          <h3>Network &amp; printer</h3>
+          <p class="set-note">Wi-Fi network and Moonraker host/port are configured together on the setup page — changing Wi-Fi re-enters the password, so they are kept on one screen to avoid dropping the device off the network.</p>
+          <div class="settings-links">
+            <a class="btn" href="/setup"><svg class="icon"><use href="#i-wifi"/></svg> Wi-Fi &amp; printer setup</a>
+          </div>
+          <div class="ctl-group" style="margin-top:4px">
+            <div class="ctl-head"><span class="form-label">Control token</span></div>
+            <input class="form-input" id="s-token" type="text" maxlength="64" placeholder="Enter a token, or leave blank" autocomplete="off" spellcheck="false">
+            <p class="set-note is-warn">A control token locks every command to clients that send it. If you set one, this browser remembers it — but Klipper/Moonraker and any other device must be given the same token or they can no longer control the heater. Clear it to return to open LAN control.</p>
+            <div class="set-row">
+              <button class="btn btn-primary" type="button" id="s-token-save"><span>Set token</span></button>
+              <button class="btn btn-danger" type="button" id="s-token-clear"><span>Clear token</span></button>
+            </div>
+            <div class="mode-feedback" id="s-token-msg" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <!-- Event log (GET /api/v2/logs). -->
+        <div class="set-card">
+          <h3 class="set-head-row"><span>Event log</span>
+            <button class="btn btn-sm" type="button" id="s-logs-refresh"><svg class="icon"><use href="#i-refresh"/></svg> Refresh</button>
+          </h3>
+          <div class="log-list" id="s-logs"><p class="set-note">Loading…</p></div>
+        </div>
+
+        <!-- Maintenance (GET /api/v2/info; POST restart / factory-reset). -->
+        <div class="set-card">
+          <h3>Maintenance</h3>
+          <dl class="set-info">
+            <div><dt>Firmware</dt><dd id="s-fw">--</dd></div>
+            <div><dt>Device ID</dt><dd id="s-devid">--</dd></div>
+            <div><dt>Boot ID</dt><dd id="s-bootid">--</dd></div>
+          </dl>
+          <div class="settings-links">
+            <a class="btn" href="/fw"><svg class="icon"><use href="#i-download"/></svg> Firmware update</a>
+          </div>
+          <div class="set-row" style="margin-top:4px">
+            <button class="btn" type="button" id="s-restart"><svg class="icon"><use href="#i-power"/></svg> Restart</button>
+            <button class="btn btn-danger" type="button" id="s-factory"><svg class="icon"><use href="#i-alert"/></svg> Factory reset</button>
+          </div>
+          <p class="set-note">Restart and factory reset are refused while the heater is on — turn it off first. Factory reset erases Wi-Fi credentials, the Moonraker host, the control token and the safety limits, then reboots to AP provisioning.</p>
+          <div class="mode-feedback" id="s-maint-msg" role="status" aria-live="polite"></div>
+        </div>
       </section>
     </main>
   </div>
@@ -611,6 +729,7 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
       $('db-title').textContent = pageTitles[page] || 'Dashboard';
       document.querySelector('.main').dataset.page = page;
       document.querySelectorAll('.tab').forEach(function(t){ t.setAttribute('aria-selected', String(t===tab)); });
+      if(page==='settings'){ loadSafety(); loadLogs(); }   /* U3: refresh on open */
     });
   });
 
@@ -753,9 +872,128 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
   /* Initial paint before the first snapshot arrives. */
   Object.keys(fields).forEach(renderField);
 
-  /* Firmware version in the brand tooltip (device info; no server-side injection). */
+  /* ===== U3: Settings ========================================================
+     Safety limits (/settings), control token (/api/v2/token), event log
+     (/api/v2/logs) and maintenance (/api/v2/restart, /api/v2/factory-reset).
+     All mutations reuse the same auth transport (hdr()/request()) — no duplicate
+     logic and no weakening of the auth/heating guards, which the firmware
+     re-checks authoritatively. --------------------------------------------- */
+  var sset = {
+    max:   { val:70,  min:30, max:70,  vId:'s-max-value',   rId:'s-max-range',   hId:'s-max-hint',   unit:'°C' },
+    comms: { val:300, min:10, max:300, vId:'s-comms-value', rId:'s-comms-range', hId:'s-comms-hint', unit:'s'  }
+  };
+  function renderSset(k){
+    var f=sset[k], v=$(f.vId), r=$(f.rId), h=$(f.hId);
+    if(v && v.firstChild) v.firstChild.textContent = f.val+' ';
+    if(r){ r.min=f.min; r.max=f.max; r.value=f.val; }
+    if(h) h.textContent = f.min+'–'+f.max+' '+f.unit;
+  }
+  function setSset(k, val){
+    var f=sset[k]; if(val==null || !isFinite(val)) return;
+    f.val = Math.max(f.min, Math.min(f.max, Math.round(val)));
+    renderSset(k);
+  }
+  Object.keys(sset).forEach(renderSset);
+
+  /* Pull current safety settings + their bounds from the authoritative /settings. */
+  function loadSafety(){
+    fetch('/settings', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(s){
+      if(!s) return;
+      if(isFinite(s.max_min)) sset.max.min = Math.round(s.max_min);
+      if(isFinite(s.max_abs)) sset.max.max = Math.round(s.max_abs);
+      if(isFinite(s.comms_ms_min)) sset.comms.min = Math.max(1, Math.round(s.comms_ms_min/1000));
+      if(isFinite(s.comms_ms_max)) sset.comms.max = Math.round(s.comms_ms_max/1000);
+      if(isFinite(s.max)) setSset('max', s.max);
+      if(isFinite(s.comms_ms)) setSset('comms', Math.round(s.comms_ms/1000));
+    }).catch(function(){});
+  }
+  document.querySelectorAll('[data-sstep]').forEach(function(b){
+    b.addEventListener('click', function(){ var p=b.dataset.sstep.split(','); setSset(p[0], sset[p[0]].val+Number(p[1])); });
+  });
+  [['max','s-max-range'],['comms','s-comms-range']].forEach(function(p){
+    var r=$(p[1]); if(r) r.addEventListener('input', function(){ setSset(p[0], Number(r.value)); });
+  });
+  /* Save via the existing auth-gated POST /settings (query form). request() carries
+     the auth header + the one-shot 403 token retry; the device clamps + echoes. */
+  $('s-safety-save').addEventListener('click', function(){
+    flash('s-safety-msg', 'Saving…');
+    request('/settings?max='+sset.max.val+'&comms_ms='+(sset.comms.val*1000), {})
+      .then(function(s){
+        if(s){ if(isFinite(s.max_abs)) sset.max.max=Math.round(s.max_abs);
+          if(isFinite(s.max)) setSset('max', s.max);
+          if(isFinite(s.comms_ms)) setSset('comms', Math.round(s.comms_ms/1000)); }
+        flash('s-safety-msg', 'Saved.', 'is-ok');
+      })
+      .catch(function(j){ flash('s-safety-msg', 'Save failed: '+((j&&(j.message||j.error))||'error'), 'is-error'); });
+  });
+
+  /* Control token set/clear -> POST /api/v2/token. On success this browser keeps
+     using the new token (localStorage db_tok) so it can't lock itself out. */
+  function saveToken(clear){
+    var t = clear ? '' : (($('s-token').value)||'').trim();
+    if(!clear && !t){ flash('s-token-msg', 'Enter a token, or use Clear token.', 'is-error'); return; }
+    if(t.length>64){ flash('s-token-msg', 'Token must be 64 characters or fewer.', 'is-error'); return; }
+    var warn = clear
+      ? 'Clear the control token and return to open LAN control?'
+      : 'Set this control token? Klipper/Moonraker and every other controller must send the same token or they can no longer control the heater.';
+    if(!confirm(warn)) return;
+    flash('s-token-msg', 'Saving…');
+    request('/api/v2/token', {token:t}).then(function(r){
+      if(t) localStorage.setItem('db_tok', t); else localStorage.removeItem('db_tok');
+      $('s-token').value='';
+      flash('s-token-msg', (r&&r.token_set) ? 'Control token set — this browser will keep using it.' : 'Control token cleared.', 'is-ok');
+    }).catch(function(j){ flash('s-token-msg', 'Failed: '+((j&&(j.message||j.error))||'error'), 'is-error'); });
+  }
+  $('s-token-save').addEventListener('click', function(){ saveToken(false); });
+  $('s-token-clear').addEventListener('click', function(){ saveToken(true); });
+
+  /* Event log (GET /api/v2/logs, newest first). Rendered with textContent only. */
+  function fmtLogTime(ms){
+    var s=Math.floor((ms||0)/1000), h=Math.floor(s/3600), m=Math.floor((s%3600)/60), ss=s%60;
+    function p(n){ return (n<10?'0':'')+n; }
+    return (h>0 ? h+':' : '')+p(m)+':'+p(ss);
+  }
+  function loadLogs(){
+    var box=$('s-logs'); if(!box) return;
+    box.textContent=''; var loading=document.createElement('p'); loading.className='set-note'; loading.textContent='Loading…'; box.appendChild(loading);
+    fetch('/api/v2/logs', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
+      var e=(d&&d.entries)||[];
+      box.textContent='';
+      if(!e.length){ var n=document.createElement('p'); n.className='set-note'; n.textContent='No events logged yet.'; box.appendChild(n); return; }
+      e.forEach(function(x){
+        var row=document.createElement('div'); row.className='log-row';
+        var t=document.createElement('span'); t.className='log-t'; t.textContent=fmtLogTime(x.ms);
+        var m=document.createElement('span'); m.className='log-m'; m.textContent=x.text;
+        row.appendChild(t); row.appendChild(m); box.appendChild(row);
+      });
+    }).catch(function(){ box.textContent=''; var n=document.createElement('p'); n.className='set-note is-warn'; n.textContent='Could not load the event log.'; box.appendChild(n); });
+  }
+  $('s-logs-refresh').addEventListener('click', loadLogs);
+
+  /* Maintenance: restart + factory reset (both auth-gated + refused while heating
+     on the device). The confirm dialogs stop an accidental reboot/erase. */
+  $('s-restart').addEventListener('click', function(){
+    if(!confirm('Restart the device now? It will be offline for a few seconds.')) return;
+    flash('s-maint-msg', 'Restarting…');
+    request('/api/v2/restart', {})
+      .then(function(){ flash('s-maint-msg', 'Restarting — the device will reconnect shortly.', 'is-ok'); })
+      .catch(function(j){ flash('s-maint-msg', 'Refused: '+((j&&(j.message||j.error))||'error'), 'is-error'); });
+  });
+  $('s-factory').addEventListener('click', function(){
+    if(!confirm('Factory reset erases Wi-Fi credentials, the Moonraker host, the control token and safety limits, then reboots into AP setup mode. This browser will lose contact with the device. Continue?')) return;
+    if(!confirm('Are you sure? You will have to re-provision Wi-Fi from the DragonBreath access point.')) return;
+    flash('s-maint-msg', 'Resetting…');
+    request('/api/v2/factory-reset?confirm=factory-reset', {})
+      .then(function(){ localStorage.removeItem('db_tok'); flash('s-maint-msg', 'Factory reset done — rebooting to AP provisioning.', 'is-ok'); })
+      .catch(function(j){ flash('s-maint-msg', 'Refused: '+((j&&(j.message||j.error))||'error'), 'is-error'); });
+  });
+
+  /* Device info: firmware in the brand tooltip + the Maintenance panel. */
   fetch('/api/v2/info').then(function(r){ return r.json(); }).then(function(i){
-    if(i && i.firmware){ $('brand').title = 'DragonBreath '+i.firmware; $('db-stub-note').textContent += ' (firmware '+i.firmware+')'; }
+    if(!i) return;
+    if(i.firmware){ $('brand').title = 'DragonBreath '+i.firmware; u('s-fw', i.firmware); }
+    if(i.device_id) u('s-devid', i.device_id);
+    if(i.boot_id) u('s-bootid', i.boot_id);
   }).catch(function(){});
 
   fetch('/api/v2/state', {cache:'no-store'})
