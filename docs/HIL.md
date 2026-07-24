@@ -15,8 +15,8 @@ As of 2026-07-23:
 - Both devboard transports pass the compile-time GPIO/ADC exclusion audit.
 - The native-USB image builds and flashes, but this board's application-side
   native USB serial endpoint did not respond during qualification.
-- The non-heating real-Panda smoke scenario is implemented; the physical
-  real-Panda release matrix remains pending.
+- The real-Panda UART profile passes the non-heating smoke scenario on physical
+  hardware, both as a guarded build/flash run and as an already-flashed run.
 
 ## Safety boundaries
 
@@ -241,6 +241,35 @@ python tools/hil.py \
 
 Add `--allow-heater` only for a supervised scenario that intentionally requests
 a positive temperature. The provided Panda smoke scenario never requests heat.
+
+### Reference hardware result
+
+The real-Panda workflow was qualified on 2026-07-23 using commit `7883dda`, an
+ESP32-C3 revision 1.1 Panda connected to a generic Linux SSH device host through
+its on-board QinHeng `1a86:7522` UART bridge, and ESP-IDF 5.3.1 on the build
+machine.
+
+Before flashing, the complete 4 MiB device flash was read and its local and
+remote SHA-256 digests were compared. The guarded run then:
+
+1. built the `sdkconfig.hil-panda` profile;
+2. transferred the manifest and images to the device host;
+3. flashed and reset the Panda with remote esptool;
+4. ran `panda-smoke.json`; and
+5. retrieved `report.json` and `serial.jsonl`.
+
+The same scenario passed again without `--flash`, proving the normal attach and
+test path against an already-running unit. Both runs reported:
+
+- `target: "panda"` over the `uart` transport;
+- `mains_gpio_compiled_out: false`, confirming the real hardware profile;
+- valid chamber/PTC readings and live zero-cross counts;
+- successful `state` and unconditional `off` commands; and
+- final mode `off` with `heater_demand: false` and `heater_output: false`.
+
+The build profile contained `CONFIG_PB_HIL_CONSOLE=y`,
+`CONFIG_ESP_CONSOLE_UART_DEFAULT=y`, and no `CONFIG_PB_POWER_LED`. Neither run
+used `--allow-heater`, so the harness could not issue a positive heat request.
 
 ## Manual builds
 

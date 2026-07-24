@@ -40,7 +40,7 @@ OEM parity → [`docs/OEM_PARITY.md`](docs/OEM_PARITY.md) · hardware →
 | Auto (follow-bed) / filament-dry modes | 🚧 Shipped in the state machine + UI (v0.3.0); end-to-end hardware soak in progress |
 | Flasher (`tools/flash.py`) | ✅ Backs up full stock flash first, then flashes; `--restore` returns to stock |
 | Web OTA update | ✅ Dual-OTA + rollback; upload from the UI, verified on hardware (DragonBreath-only, refused while heating) |
-| HIL (`pb_hil` / `tools/hil.py`) | 🚧 Dev-board native-USB/UART + real-Panda UART profiles implemented; CH341 dev-board suite qualified on hardware, real-Panda matrix pending |
+| HIL (`pb_hil` / `tools/hil.py`) | ✅ CH341 devboard suite and non-heating real-Panda UART build/flash/no-flash workflows qualified on hardware; native-USB runtime pending on the tested devboard |
 
 **Shared-core boundary:** board-agnostic infrastructure (WiFi, event log, Moonraker
 client) is referenced from the [OpenVent](https://github.com/justinh-rahb/OpenVent)
