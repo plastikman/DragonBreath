@@ -1,5 +1,5 @@
 # Release-only overlay (layered on top of sdkconfig.defaults by the CI build).
-# Drive the front-panel Power LED on GPIO21 (heating indicator, stock parity).
+# Drive the front-panel Power LED on GPIO21 (solid healthy, blinking on fault).
 # This repurposes the UART0 console TX pin, so release builds have no runtime
 # serial log output — intentional. Dev builds (plain `idf.py build`) omit this
 # file and keep the console.
