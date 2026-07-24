@@ -793,7 +793,10 @@ static bool refuse_while_heating(httpd_req_t *req, const char *message)
 {
     pb_policy_snapshot_t snap;
     pb_policy_get_snapshot(&snap);
-    if (snap.heater_output || snap.effective_target_c > 0.0f) {
+    // Refuse for ANY armed mode, not just active output: armed AUTO deliberately
+    // holds effective_target_c at 0 while waiting below the bed threshold, so infer
+    // "armed" from the mode (the documented contract), not from output/target.
+    if (snap.mode != PB_MODE_OFF || snap.heater_output) {
         api_error(req, "409 Conflict", "heater_active", message, NULL);
         return true;
     }
@@ -846,11 +849,19 @@ static esp_err_t factory_reset_post(httpd_req_t *req)
         return api_error(req, "400 Bad Request", "confirmation_required",
                          "factory reset requires confirm=factory-reset", NULL);
 
+    // Fail closed: only reboot if the erase AND commit actually succeed — never
+    // report success (and wipe-then-reboot) when configuration is still intact.
     nvs_handle_t h;
-    if (nvs_open("app_nvs", NVS_READWRITE, &h) == ESP_OK) {
-        nvs_erase_all(h);
-        nvs_commit(h);
+    esp_err_t err = nvs_open("app_nvs", NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_erase_all(h);
+        if (err == ESP_OK) err = nvs_commit(h);
         nvs_close(h);
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "factory reset failed (nvs err 0x%x); NOT rebooting", err);
+        return api_error(req, "500 Internal Server Error", "erase_failed",
+                         "factory reset failed — configuration not erased", NULL);
     }
     ESP_LOGW(TAG, "factory reset: app_nvs erased; rebooting to AP provisioning");
     httpd_resp_set_type(req, "application/json");
