@@ -229,14 +229,19 @@ static void control_task(void *arg)
         // timed out, runs the complete pb_policy_tick() above — there is no
         // partial "just drop the SSR" path. The watchdog is fed only after that
         // successful tick, so an extra iteration keeps coverage armed.
-        TickType_t now = xTaskGetTickCount();
-        TickType_t wait = (next_deadline > now) ? (next_deadline - now) : 0;
+        // Use SIGNED deltas so the comparison stays correct across the 32-bit
+        // tick-count wrap (~497 days at 100 Hz). An unsigned `next_deadline > now`
+        // inverts right at the wrap and would busy-spin full ticks for up to one
+        // period, starving lower-priority tasks — see the invariant above.
+        int32_t remaining = (int32_t)(next_deadline - xTaskGetTickCount());
+        TickType_t wait = remaining > 0 ? (TickType_t)remaining : 0;
         uint32_t notified = ulTaskNotifyTake(pdTRUE, wait);
         if (notified == 0) {          // periodic timeout: advance one period
             next_deadline += period;
-            now = xTaskGetTickCount();
-            if ((TickType_t)(next_deadline - now) > period)   // overran: resync
-                next_deadline = now + period;
+            // Overran (still not ahead of now, e.g. after a long stall): resync
+            // forward instead of bursting to catch up.
+            if ((int32_t)(next_deadline - xTaskGetTickCount()) <= 0)
+                next_deadline = xTaskGetTickCount() + period;
         }
         // notified != 0: run again immediately, deadline unchanged.
     }
