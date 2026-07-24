@@ -269,7 +269,7 @@ transport/state adapter.
 
 ## Phase C — Physical buttons (all four)
 
-> 🟡 **Code complete; in review; bench sign-off pending.** Delivered as three stacked
+> 🟡 **Code complete; in review; Panda functional bench passed.** Delivered as three stacked
 > PRs off `main`: **(1)** LED mode semantics — all four LEDs driven from the policy
 > snapshot (Power = device-alive/fault, On/Auto/Dry = active mode, Auto slow-blinks
 > when armed-but-waiting); **(2)** B5's remembered mode parameters (`md_last`,
@@ -281,12 +281,21 @@ transport/state adapter.
 > **4 active-low buttons: Power=GPIO9, Auto=GPIO8, On=GPIO10, Dry=GPIO2**. **Boot-strap
 > caveat:** Power(9)/Auto(8)/Dry(2) are strapping pins (GPIO9 = ROM download-mode) —
 > the driver ignores a button held at power-on until it releases; On(10) is the only
-> non-strap. **Still open:** the on-device bench checklist below, incl. the < 20 ms
-> panic-off latency measurement.
+> non-strap. The real Panda functional checklist passed on 2026-07-24 at
+> `175e187`. **Still open:** the scope-grade < 20 ms panic-off latency
+> measurement and the scripted devboard-button scenario on attached hardware.
 
 **C1. `pb_buttons` (new component).** Port `pv_button`'s state machine (10 ms poll task, 20 ms debounce, long-press 2 s) behind a per-button table with an `active_low` field. v1 table = **all four**: `PB_GPIO_BTN_POWER`=9, `_AUTO`=8, `_ON`=10, `_DRY`=2 — each `GPIO_MODE_INPUT` + internal **pull-up** (never pull-down — 9/8/2 are straps that must be high at reset), poll-only. API `pb_buttons_start(cb)`, `pb_button_cb_t(id, ev)` with `id ∈ {POWER, AUTO, ON, DRY}`; SHORT on release, LONG once (suppress trailing short). REQUIRES `driver pb_board` (decoupled — no heater/policy link).
 
-**C2. `pb_heater_request_estop(reason)` (new).** Mux-guarded latch (`s_target_c=0; s_latched_off=true; s_fault_reason=reason`) with **no GPIO write** — the next `pb_heater_tick()` drops the SSR in control-task context (≤500 ms), preserving the single-SSR-writer invariant. **Do NOT call `emergency_off()` from the button task** (it writes the SSR GPIO directly).
+**C2. `pb_heater_request_panic_off(reason)` (new).** Mux-guarded latch
+(`s_target_c=0; s_latched_off=true; s_fault_reason=reason`) with **no GPIO
+write**. `pb_policy_request_panic_off()` completes the authoritative OFF
+transition, invalidates the lease, and notifies the control task to run a full
+safety tick immediately, preserving the single-SSR-writer invariant without
+waiting for the next 500 ms deadline. Diagnostic logging happens only after the
+notification so it cannot consume the shutdown-latency budget. **Do NOT call
+`pb_heater_emergency_off()` from the button task** (it writes the SSR GPIO
+directly).
 
 **C3. Button UX (provisional — confirm against OEM behavior) in
 `pb_policy_on_button(id, ev)`.** Map each button to its labeled mode; prefer the
@@ -295,18 +304,22 @@ familiar OEM meaning unless a deviation adds clear safety/usability value. Propo
 - **Auto** (GPIO8) SHORT → toggle AUTO (follow-bed).
 - **Dry** (GPIO2) SHORT → toggle DRYING (default preset/hours).
 - **Power** (GPIO9) SHORT → master OFF (any mode → OFF); SHORT while already off → no-op + evlog.
-- **LONG (2 s), any button, not faulted** → `pb_heater_request_estop("button:<id>")`.
-  **LONG while faulted** → attempt clear only if every recovery condition passes; a
-  failed clear retains the latch and reports why. Never clear a persistent fault via
-  an accidental short press.
+- **LONG (2 s), any button** → policy-level panic-off.
+- **Power LONG while faulted** → attempt clear; a still-unsafe condition
+  re-latches on the next full safety tick. Other long presses remain panic-off.
+  Never clear a fault via an accidental short press.
 
-Every action sets source=BUTTON, bumps the revision, invalidates the remote lease,
-emits a `pv_evlog` event, and gives feedback on that button's **co-located LED**
-(`pb_leds_set`/`_set_code`). `app_main` registers a thin
-`button_cb → pb_policy_on_button`, started **early** (before control_task) so
-panic-off is live ASAP. `pb_policy` REQUIRES += `pb_buttons pv_evlog`.
+Every state-changing action sets source=BUTTON, bumps the revision, invalidates
+the remote lease, emits a `pv_evlog` event, and drives feedback through the
+policy's **co-located LED** semantics. Power SHORT while already OFF is an
+event-log-only no-op and deliberately does not churn the revision. `app_main`
+registers a thin `button_cb → pb_policy_on_button`; command inputs start only
+after the control task exists and remembered parameters have loaded.
+`pb_policy` REQUIRES += `pb_buttons pv_evlog`.
 
-**Files:** add `components/pb_buttons/*`; `pb_heater.{c,h}` (request_estop), `pb_policy.{c,h}` (on_button), `main/app_main.c` + `main/CMakeLists.txt`.
+**Files:** add `components/pb_buttons/*`; `pb_heater.{c,h}`
+(`request_panic_off`), `pb_policy.{c,h}` (button actions + policy panic-off),
+`main/app_main.c` + `main/CMakeLists.txt`.
 
 **Bench-verification (gates trusting the buttons — do on hardware; pin + polarity
 already probed 2026-07-23):**
@@ -317,6 +330,18 @@ already probed 2026-07-23):**
 5. Safety regression while heating: no spurious sensor-fault trips, ZCD keeps counting; a LONG-press drops the SSR ≤1 tick and latches (`safety.fault_latched:true` in `/api/v2/state`).
 6. Remote-control regression: while heating from dashboard/Klipper, a button action invalidates the lease, updates both observers, and stale heartbeats/reconnects do not restore heat.
 7. Persistent-fault regression (**needs B2**): power-cycle after a latched fault → heater OFF, fan ON, commands rejected until a deliberate valid clear. *Blocked until B2's NVS fault latch lands — today the latch is RAM-only, so this gate can't fully pass yet.*
+
+**2026-07-24 Panda result (`175e187`, release profile):** all four active-low
+buttons were detected through the debounce path. On toggled remembered manual
+mode; Auto armed in waiting/blink state; Dry armed its remembered duration;
+Power forced OFF and was revision-neutral while already OFF. Auto LONG produced
+`source=button`, `button panic-off`, fault indication, OFF output, and immediate
+lease invalidation (the old heartbeat returned `409 stale_lease`); Power LONG
+cleared the recovered latch while staying OFF. Holding non-strapping On through
+a hard reset produced no short/long event, release was a no-op, and a subsequent
+fresh tap worked normally. Sensors remained nominal and no spurious safety trip
+occurred. The test used below-ambient remembered targets, so the SSR stayed low;
+the scope-grade energized SSR latency measurement remains open.
 
 ---
 
