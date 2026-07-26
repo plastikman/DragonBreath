@@ -10,6 +10,7 @@ esp_err_t pb_heater_set_target_c(float target_c);
 float pb_heater_get_target_c(void);
 float pb_heater_get_max_target_c(void);
 uint32_t pb_heater_get_comms_timeout_ms(void);
+float pb_heater_get_cool_release_c(void);
 void pb_heater_notify_link_alive(void);
 void pb_heater_tick(void);
 void pb_heater_emergency_off(const char *reason);

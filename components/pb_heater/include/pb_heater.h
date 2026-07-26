@@ -79,6 +79,14 @@ static inline bool pb_heater_fault_decide(bool open_ok, bool ns_not_found,
 #define PB_HEATER_COMMS_TIMEOUT_MS_DEFAULT  (5 * 60 * 1000)
 #define PB_HEATER_COMMS_TIMEOUT_MS_MIN      (10 * 1000)
 #define PB_HEATER_COMMS_TIMEOUT_MS_MAX      (5 * 60 * 1000)
+// Residual-heat cooldown-purge "cool down to" temperature: after heat ran, the fan
+// keeps running until the chamber + PTC drop below this, then stops. Raise it for a
+// hot room where the sensors can't reach the default (else the fan runs forever).
+// This is a comfort/wear setting, NOT a safety cutoff — fault airflow and the fixed
+// over-temp trips are independent.
+#define PB_HEATER_COOL_RELEASE_C_DEFAULT    40.0f
+#define PB_HEATER_COOL_RELEASE_MIN_C        30.0f
+#define PB_HEATER_COOL_RELEASE_MAX_C        65.0f
 
 // Bring up the SSR GPIO in a guaranteed-OFF state. Call before anything can
 // request heat. Idempotent.
@@ -115,6 +123,11 @@ float     pb_heater_get_max_target_c(void);
 // extended past 5 min) and persists it.
 esp_err_t pb_heater_set_comms_timeout_ms(uint32_t ms);
 uint32_t  pb_heater_get_comms_timeout_ms(void);
+// Cooldown-purge "cool down to" temperature. Setter clamps to
+// [COOL_RELEASE_MIN_C, COOL_RELEASE_MAX_C] and persists it. Read by pb_policy's
+// residual-heat purge (pb_purge_decide).
+esp_err_t pb_heater_set_cool_release_c(float c);
+float     pb_heater_get_cool_release_c(void);
 
 // Feed the comms watchdog: call whenever a live controller link is confirmed
 // (Moonraker connected, or a fresh command). If not called within

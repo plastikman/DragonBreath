@@ -23,12 +23,13 @@
 static const char *TAG = "pb_policy";
 
 // Session-gated residual-heat purge: after heat ran this boot, keep the fan on
-// while the chamber OR PTC is hot, with hysteresis (latch at >=40 C, release only
-// once BOTH are < 37 C). Session-gated (heated_this_session) so the fan NEVER
-// auto-starts on temperature alone — and because that flag is RAM-only, a
-// power-cycle-while-hot does NOT spin the fan.
-#define PB_PURGE_LATCH_C            40.0f
-#define PB_PURGE_RELEASE_C         37.0f
+// while the chamber OR PTC is hot, with hysteresis (engage at >= release+HYST,
+// release only once BOTH are < the configured "cool down to" temperature).
+// Session-gated (heated_this_session) so the fan NEVER auto-starts on temperature
+// alone — and because that flag is RAM-only, a power-cycle-while-hot does NOT spin
+// the fan. The release temp is user-configurable (pb_heater_get_cool_release_c);
+// raise it for a hot room where the sensors can't reach the default.
+#define PB_PURGE_HYSTERESIS_C        3.0f
 #define PB_AUTO_BED_HYSTERESIS_C     3.0f
 #define PB_DRYING_MAX_HOURS         12U
 #define PB_MIN_MODE_TARGET_C        30.0f
@@ -727,21 +728,25 @@ void pb_policy_on_button(pb_button_id_t id, pb_button_event_t ev)
 
 bool pb_purge_decide(bool heat, bool *heated_this_session,
                      bool chamber_ok, float chamber_c,
-                     bool ptc_ok, float ptc_c, bool prev_cooldown)
+                     bool ptc_ok, float ptc_c, bool prev_cooldown,
+                     float release_c)
 {
     if (heat) { *heated_this_session = true; return false; }  // heating: fan is heat's job
     if (!*heated_this_session) return false;                  // never heated -> no temp-only purge
 
+    // The user-configurable "cool down to" temperature is the RELEASE point; engage
+    // is one hysteresis band above it.
+    const float latch_c = release_c + PB_PURGE_HYSTERESIS_C;
     // Start the purge unless we can CONFIRM it's cool — i.e. unless BOTH sensors
     // are known and below the latch temp. So a sensor that's hot, OR unknown right
     // as heating ends, starts the fan (can't confirm cool -> fail safe) rather than
     // only starting when a sensor actively reads >= the latch.
-    bool confirmed_cool = (chamber_ok && chamber_c < PB_PURGE_LATCH_C) &&
-                          (ptc_ok     && ptc_c     < PB_PURGE_LATCH_C);
+    bool confirmed_cool = (chamber_ok && chamber_c < latch_c) &&
+                          (ptc_ok     && ptc_c     < latch_c);
     // Release only once BOTH sensors are KNOWN below the release temp; an unknown
     // (faulted) or still-hot sensor keeps the fan running (fail-safe).
-    bool both_cool = (chamber_ok && chamber_c < PB_PURGE_RELEASE_C) &&
-                     (ptc_ok     && ptc_c     < PB_PURGE_RELEASE_C);
+    bool both_cool = (chamber_ok && chamber_c < release_c) &&
+                     (ptc_ok     && ptc_c     < release_c);
 
     bool cooldown = prev_cooldown ? !both_cool        // purging: keep on until both cool
                                   : !confirmed_cool;  // idle: start unless confirmed cool
@@ -847,7 +852,7 @@ void pb_policy_tick(void)
 
     bool cooldown = pb_purge_decide(heat, &s.heated_this_session,
                                     chamber_ok, chamber_c, ptc_ok, ptc_c,
-                                    s.last_cooldown);
+                                    s.last_cooldown, pb_heater_get_cool_release_c());
     s.last_cooldown = cooldown;
 
     if (faulted && !s.last_faulted) {

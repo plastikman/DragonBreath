@@ -7,6 +7,18 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+- **Configurable cooldown-fan "cool down to" temperature.** The residual-heat purge
+  (the fan that keeps running after a heat session until things cool off) previously
+  released at a fixed 40 °C. That temperature is now a persisted, user-settable
+  slider in **Settings → Cooldown fan** (range 30–65 °C, default 40 °C, also on
+  `GET/POST /settings?cool_release=`). Raise it for a hot ambient where the chamber
+  and heater element can't fall back to 40 °C — otherwise the purge fan would run
+  indefinitely. The engage point stays one 3 °C hysteresis band above the release
+  temperature. This is a comfort/wear setting, not a safety cutoff: the fixed
+  105 °C PTC / 85 °C chamber over-temp trips and their fault-driven airflow are
+  independent and unchanged.
+
 ## [0.6.1] - 2026-07-24
 
 ### Changed

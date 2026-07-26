@@ -624,10 +624,11 @@ static esp_err_t events_get(httpd_req_t *req)
 // the response to a successful POST /settings).
 static esp_err_t settings_send(httpd_req_t *req)
 {
-    char buf[288];
+    char buf[352];
     int n = snprintf(buf, sizeof buf,
         "{\"max\":%.1f,\"max_min\":%.1f,\"max_abs\":%.1f,"
         "\"comms_ms\":%u,\"comms_ms_min\":%u,\"comms_ms_max\":%u,"
+        "\"cool_release\":%.1f,\"cool_release_min\":%.1f,\"cool_release_max\":%.1f,"
         "\"leds_enabled\":%s}",
         (double)pb_heater_get_max_target_c(),
         (double)PB_HEATER_MIN_TARGET_C,
@@ -635,6 +636,9 @@ static esp_err_t settings_send(httpd_req_t *req)
         (unsigned)pb_heater_get_comms_timeout_ms(),
         (unsigned)PB_HEATER_COMMS_TIMEOUT_MS_MIN,
         (unsigned)PB_HEATER_COMMS_TIMEOUT_MS_MAX,
+        (double)pb_heater_get_cool_release_c(),
+        (double)PB_HEATER_COOL_RELEASE_MIN_C,
+        (double)PB_HEATER_COOL_RELEASE_MAX_C,
         pb_leds_get_enabled() ? "true" : "false");
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, buf, n);
@@ -674,11 +678,12 @@ static bool parse_u32(const char *s, uint32_t *out)
     return true;
 }
 
-// POST /settings?max=<C>&comms_ms=<ms>&leds_enabled=<0|1> — update any subset.
-// Auth-gated. Each field is optional; the safety values are clamped to the safe
-// envelope by pb_heater's setters (the ceiling can never exceed 70 C; the comms
-// deadman stays within [10s, 5min]). leds_enabled toggles the status-LED master
-// enable. At least one recognized field must be present.
+// POST /settings?max=<C>&comms_ms=<ms>&cool_release=<C>&leds_enabled=<0|1> —
+// update any subset. Auth-gated. Each field is optional; the safety values are
+// clamped to the safe envelope by pb_heater's setters (the ceiling can never
+// exceed 70 C; the comms deadman stays within [10s, 5min]; cool_release within
+// [30, 65]). leds_enabled toggles the status-LED master enable. At least one
+// recognized field must be present.
 static esp_err_t settings_post(httpd_req_t *req)
 {
     if (auth_reject(req)) return ESP_OK;
@@ -705,6 +710,12 @@ static esp_err_t settings_post(httpd_req_t *req)
         pb_heater_set_comms_timeout_ms(ms);   // clamps + persists
         applied = true;
     }
+    if (httpd_query_key_value(q, "cool_release", v, sizeof v) == ESP_OK) {
+        float c;
+        if (!parse_temp(v, &c)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad cool_release"); return ESP_FAIL; }
+        pb_heater_set_cool_release_c(c);   // clamps + persists
+        applied = true;
+    }
     if (httpd_query_key_value(q, "leds_enabled", v, sizeof v) == ESP_OK) {
         uint32_t on;
         if (!parse_u32(v, &on)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad leds_enabled"); return ESP_FAIL; }
@@ -714,7 +725,7 @@ static esp_err_t settings_post(httpd_req_t *req)
         applied = true;
     }
     if (!applied) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "no known settings (max, comms_ms, leds_enabled)");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "no known settings (max, comms_ms, cool_release, leds_enabled)");
         return ESP_FAIL;
     }
     return settings_send(req);   // echo the clamped result

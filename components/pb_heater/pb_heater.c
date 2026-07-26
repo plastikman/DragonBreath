@@ -36,11 +36,13 @@ static int64_t     s_persist_retry_us; // guarded by s_mux — last persist-retr
 static bool        s_on;            // written only by the control task; atomic read
 static float       s_max_target_c;      // guarded by s_mux — settable set-point ceiling
 static int64_t     s_comms_timeout_us;  // guarded by s_mux — comms deadman (microseconds)
+static float       s_cool_release_c;    // guarded by s_mux — residual-heat purge "cool down to" temp
 
 // Persisted settings live in the shared app_nvs namespace (centi-°C / ms u32).
 #define NVS_NS             "app_nvs"
 #define KEY_HEAT_MAX_C     "heat_max_c"      // u32 centi-°C
 #define KEY_HEAT_COMMS_MS  "heat_comms_ms"   // u32 ms
+#define KEY_COOL_REL_C     "cool_rel_c"      // u32 centi-°C — cooldown-purge release temp
 #define KEY_FAULT_LATCH    "fault_latch"     // u8 0/1 — persisted safety-fault latch
 #define KEY_FAULT_CODE     "fault_code"      // u8 pb_fault_reason_t
 
@@ -109,6 +111,7 @@ esp_err_t pb_heater_init(void)
     // applies persisted values later (called after nvs_init in app_main).
     s_max_target_c = PB_HEATER_MAX_TARGET_C_DEFAULT;
     s_comms_timeout_us = (int64_t)PB_HEATER_COMMS_TIMEOUT_MS_DEFAULT * 1000;
+    s_cool_release_c = PB_HEATER_COOL_RELEASE_C_DEFAULT;
     taskEXIT_CRITICAL(&s_mux);
 #ifdef CONFIG_PB_HIL_DEVBOARD
     ESP_LOGW(TAG, "HIL dev-board backend: relay GPIO compiled out");
@@ -156,11 +159,13 @@ void pb_heater_load_config(void)
     // Read NVS OUTSIDE the lock (it can block), then clamp + assign under s_mux.
     float    max_c    = PB_HEATER_MAX_TARGET_C_DEFAULT;
     uint32_t comms_ms = PB_HEATER_COMMS_TIMEOUT_MS_DEFAULT;
+    float    cool_c   = PB_HEATER_COOL_RELEASE_C_DEFAULT;
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READONLY, &h) == ESP_OK) {
         uint32_t v;
         if (nvs_get_u32(h, KEY_HEAT_MAX_C, &v) == ESP_OK)    max_c    = centi_to_c(v);
         if (nvs_get_u32(h, KEY_HEAT_COMMS_MS, &v) == ESP_OK) comms_ms = v;
+        if (nvs_get_u32(h, KEY_COOL_REL_C, &v) == ESP_OK)    cool_c   = centi_to_c(v);
         nvs_close(h);
     }
     // Clamp to the safe envelope regardless of what NVS held (defends against a
@@ -169,12 +174,16 @@ void pb_heater_load_config(void)
     if (max_c > PB_HEATER_ABS_MAX_TARGET_C) max_c = PB_HEATER_ABS_MAX_TARGET_C;
     if (comms_ms < PB_HEATER_COMMS_TIMEOUT_MS_MIN) comms_ms = PB_HEATER_COMMS_TIMEOUT_MS_MIN;
     if (comms_ms > PB_HEATER_COMMS_TIMEOUT_MS_MAX) comms_ms = PB_HEATER_COMMS_TIMEOUT_MS_MAX;
+    if (cool_c < PB_HEATER_COOL_RELEASE_MIN_C) cool_c = PB_HEATER_COOL_RELEASE_MIN_C;
+    if (cool_c > PB_HEATER_COOL_RELEASE_MAX_C) cool_c = PB_HEATER_COOL_RELEASE_MAX_C;
     taskENTER_CRITICAL(&s_mux);
     s_max_target_c = max_c;
     s_comms_timeout_us = (int64_t)comms_ms * 1000;
+    s_cool_release_c = cool_c;
     if (s_target_c > s_max_target_c) s_target_c = s_max_target_c;
     taskEXIT_CRITICAL(&s_mux);
-    ESP_LOGI(TAG, "config: max_target=%.1fC comms_timeout=%ums", max_c, (unsigned)comms_ms);
+    ESP_LOGI(TAG, "config: max_target=%.1fC comms_timeout=%ums cool_release=%.1fC",
+             max_c, (unsigned)comms_ms, cool_c);
 }
 
 esp_err_t pb_heater_set_max_target_c(float max_c)
@@ -227,6 +236,32 @@ uint32_t pb_heater_get_comms_timeout_ms(void)
     int64_t us = s_comms_timeout_us;
     taskEXIT_CRITICAL(&s_mux);
     return (uint32_t)(us / 1000);
+}
+
+esp_err_t pb_heater_set_cool_release_c(float c)
+{
+    if (!isfinite(c)) return ESP_ERR_INVALID_ARG;
+    if (c < PB_HEATER_COOL_RELEASE_MIN_C) c = PB_HEATER_COOL_RELEASE_MIN_C;
+    if (c > PB_HEATER_COOL_RELEASE_MAX_C) c = PB_HEATER_COOL_RELEASE_MAX_C;
+    taskENTER_CRITICAL(&s_mux);
+    s_cool_release_c = c;
+    taskEXIT_CRITICAL(&s_mux);
+    nvs_handle_t h;                                 // persist outside the lock
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u32(h, KEY_COOL_REL_C, c_to_centi(c));
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    ESP_LOGI(TAG, "cool_release set to %.1f C", c);
+    return ESP_OK;
+}
+
+float pb_heater_get_cool_release_c(void)
+{
+    taskENTER_CRITICAL(&s_mux);
+    float c = s_cool_release_c;
+    taskEXIT_CRITICAL(&s_mux);
+    return c;
 }
 
 void pb_heater_notify_link_alive(void)

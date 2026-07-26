@@ -19,6 +19,7 @@ static const char *heater_reason;
 static unsigned heater_link_pets;
 static float heater_max_target_c;
 static uint32_t heater_comms_timeout_ms;
+static float heater_cool_release_c = 40.0f;
 // When set, the "sensor condition" is still unsafe, so the next tick re-latches
 // after any clear -- mirroring pb_heater_tick()'s real re-evaluation.
 static bool heater_relatch;
@@ -66,6 +67,7 @@ uint32_t pb_heater_get_comms_timeout_ms(void)
 {
     return heater_comms_timeout_ms;
 }
+float pb_heater_get_cool_release_c(void) { return heater_cool_release_c; }
 void pb_heater_notify_link_alive(void) { heater_link_pets++; }
 void pb_heater_tick(void)
 {
@@ -889,48 +891,66 @@ static void test_fault_clear_persist_failure_stays_latched(void)
 }
 
 // B2: the residual-heat purge is session-gated (never temperature-only, so a
-// reboot-while-hot does NOT spin the fan) with 40 C-latch / 37 C-release hysteresis
-// over BOTH the chamber and PTC sensors.
+// reboot-while-hot does NOT spin the fan) with a (release_c + 3) C engage /
+// release_c C release hysteresis over BOTH the chamber and PTC sensors. release_c
+// is the user-configurable "cool down to" setting; 37 here reproduces the original
+// 40-engage / 37-release behavior (37 + PB_PURGE_HYSTERESIS_C == 40).
 static void test_purge_decide_session_and_hysteresis(void)
 {
+    const float rel = 37.0f;                     // engage at 40, release at 37
     bool heated = false;
     // Never heated this session -> no purge even when hot. This is EXACTLY the
     // reboot-while-hot case (the heated flag is RAM-only and starts false).
-    CHECK(pb_purge_decide(false, &heated, true, 60.0f, true, 60.0f, false) == false);
+    CHECK(pb_purge_decide(false, &heated, true, 60.0f, true, 60.0f, false, rel) == false);
     CHECK(heated == false);
 
     // Actively heating marks the session; the fan is heat control's job, not purge.
-    CHECK(pb_purge_decide(true, &heated, true, 55.0f, true, 55.0f, false) == false);
+    CHECK(pb_purge_decide(true, &heated, true, 55.0f, true, 55.0f, false, rel) == false);
     CHECK(heated == true);
 
     // Heat stops while hot (chamber >= 40) -> purge starts.
-    CHECK(pb_purge_decide(false, &heated, true, 50.0f, true, 30.0f, false) == true);
+    CHECK(pb_purge_decide(false, &heated, true, 50.0f, true, 30.0f, false, rel) == true);
     // Hysteresis: drifts into the 37-40 band while purging -> stays on.
-    CHECK(pb_purge_decide(false, &heated, true, 38.0f, true, 30.0f, true) == true);
+    CHECK(pb_purge_decide(false, &heated, true, 38.0f, true, 30.0f, true, rel) == true);
     // Releases only once BOTH sensors are below 37.
-    CHECK(pb_purge_decide(false, &heated, true, 36.9f, true, 36.0f, true) == false);
+    CHECK(pb_purge_decide(false, &heated, true, 36.9f, true, 36.0f, true, rel) == false);
     CHECK(heated == false);                      // fully cooled -> session ends
 
     // Stopping in the band (38 C, below the 40 latch) does NOT start a purge.
     heated = true;
-    CHECK(pb_purge_decide(false, &heated, true, 38.0f, true, 30.0f, false) == false);
+    CHECK(pb_purge_decide(false, &heated, true, 38.0f, true, 30.0f, false, rel) == false);
 
     // PTC alone hot (chamber cool) still triggers the purge.
     heated = true;
-    CHECK(pb_purge_decide(false, &heated, true, 25.0f, true, 45.0f, false) == true);
+    CHECK(pb_purge_decide(false, &heated, true, 25.0f, true, 45.0f, false, rel) == true);
 
     // A faulted/unknown sensor while purging keeps the fan on (can't confirm cool).
     heated = true;
-    CHECK(pb_purge_decide(false, &heated, false, 0.0f, true, 30.0f, true) == true);
+    CHECK(pb_purge_decide(false, &heated, false, 0.0f, true, 30.0f, true, rel) == true);
 
     // Sensors UNKNOWN exactly as heating ends (prev=false) -> START the purge: we
     // can't confirm it's cool, so fail safe rather than skipping the cooldown.
     heated = true;
-    CHECK(pb_purge_decide(false, &heated, false, 0.0f, false, 0.0f, false) == true);
+    CHECK(pb_purge_decide(false, &heated, false, 0.0f, false, 0.0f, false, rel) == true);
     // ...but a single known-cool sensor with the other unknown still can't confirm
     // cool -> also purge (conservative).
     heated = true;
-    CHECK(pb_purge_decide(false, &heated, true, 25.0f, false, 0.0f, false) == true);
+    CHECK(pb_purge_decide(false, &heated, true, 25.0f, false, 0.0f, false, rel) == true);
+
+    // Hot-room case: a higher "cool down to" (50 C) moves the whole band up so the
+    // fan can actually release in a warm ambient. 48 C is hot at rel=37 (would purge)
+    // but cool at rel=50, and 52/53 C now straddle the 50-engage / 53-release band.
+    const float hot = 50.0f;                     // engage at 53, release at 50
+    heated = true;
+    // Just below the release point on both -> no purge (would-be-hot at rel=37).
+    CHECK(pb_purge_decide(false, &heated, true, 48.0f, true, 48.0f, false, hot) == false);
+    // Above engage on the PTC -> purge starts.
+    heated = true;
+    CHECK(pb_purge_decide(false, &heated, true, 40.0f, true, 54.0f, false, hot) == true);
+    // Drifts into the 50-53 band while purging -> stays on (hysteresis).
+    CHECK(pb_purge_decide(false, &heated, true, 40.0f, true, 51.0f, true, hot) == true);
+    // Both below 50 -> releases.
+    CHECK(pb_purge_decide(false, &heated, true, 49.9f, true, 49.0f, true, hot) == false);
 }
 
 int main(void)

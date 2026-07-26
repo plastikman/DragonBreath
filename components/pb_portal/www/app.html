@@ -569,6 +569,26 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
           <div class="mode-feedback" id="s-safety-msg" role="status" aria-live="polite"></div>
         </div>
 
+        <!-- Cooldown-fan "cool down to" temperature (GET/POST /settings?cool_release=). -->
+        <div class="set-card">
+          <h3>Cooldown fan</h3>
+          <div class="ctl-group">
+            <div class="ctl-head">
+              <span class="form-label">Cool down to</span>
+              <span class="ctl-hint" id="s-cool-hint"></span>
+            </div>
+            <div class="touch-adjust">
+              <button class="btn step-btn" type="button" data-sstep="cool,-1" aria-label="Decrease cool-down temperature"><svg class="icon"><use href="#i-minus"/></svg></button>
+              <output class="touch-value" id="s-cool-value">40 <span>°C</span></output>
+              <button class="btn step-btn" type="button" data-sstep="cool,1" aria-label="Increase cool-down temperature"><svg class="icon"><use href="#i-plus"/></svg></button>
+            </div>
+            <input class="form-range" id="s-cool-range" type="range" min="30" max="65" step="1" value="40" aria-label="Cool down to temperature">
+          </div>
+          <p class="set-note">After a heat session the fan keeps running until the chamber and heater element drop below this. Raise it for a hot room where they can't reach the default 40&nbsp;°C — otherwise the fan runs indefinitely.</p>
+          <button class="btn btn-primary btn-block" type="button" id="s-cool-save"><svg class="icon"><use href="#i-wind"/></svg> <span>Save cooldown</span></button>
+          <div class="mode-feedback" id="s-cool-msg" role="status" aria-live="polite"></div>
+        </div>
+
         <!-- Sensor calibration (GET/POST /api/v2/calibration). Per-channel offset,
              hard-bounded ±5 °C by the firmware. -->
         <div class="set-card">
@@ -1050,7 +1070,8 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
      re-checks authoritatively. --------------------------------------------- */
   var sset = {
     max:   { val:70,  min:30, max:70,  vId:'s-max-value',   rId:'s-max-range',   hId:'s-max-hint',   unit:'°C' },
-    comms: { val:300, min:10, max:300, vId:'s-comms-value', rId:'s-comms-range', hId:'s-comms-hint', unit:'s'  }
+    comms: { val:300, min:10, max:300, vId:'s-comms-value', rId:'s-comms-range', hId:'s-comms-hint', unit:'s'  },
+    cool:  { val:40,  min:30, max:65,  vId:'s-cool-value',  rId:'s-cool-range',  hId:'s-cool-hint',  unit:'°C' }
   };
   function renderSset(k){
     var f=sset[k], v=$(f.vId), r=$(f.rId), h=$(f.hId);
@@ -1073,15 +1094,18 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
       if(isFinite(s.max_abs)) sset.max.max = Math.round(s.max_abs);
       if(isFinite(s.comms_ms_min)) sset.comms.min = Math.max(1, Math.round(s.comms_ms_min/1000));
       if(isFinite(s.comms_ms_max)) sset.comms.max = Math.round(s.comms_ms_max/1000);
+      if(isFinite(s.cool_release_min)) sset.cool.min = Math.round(s.cool_release_min);
+      if(isFinite(s.cool_release_max)) sset.cool.max = Math.round(s.cool_release_max);
       if(isFinite(s.max)) setSset('max', s.max);
       if(isFinite(s.comms_ms)) setSset('comms', Math.round(s.comms_ms/1000));
+      if(isFinite(s.cool_release)) setSset('cool', s.cool_release);
       if(typeof s.leds_enabled==='boolean') setLedToggle(s.leds_enabled);
     }).catch(function(){});
   }
   document.querySelectorAll('[data-sstep]').forEach(function(b){
     b.addEventListener('click', function(){ var p=b.dataset.sstep.split(','); setSset(p[0], sset[p[0]].val+Number(p[1])); });
   });
-  [['max','s-max-range'],['comms','s-comms-range']].forEach(function(p){
+  [['max','s-max-range'],['comms','s-comms-range'],['cool','s-cool-range']].forEach(function(p){
     var r=$(p[1]); if(r) r.addEventListener('input', function(){ setSset(p[0], Number(r.value)); });
   });
   /* Save via the existing auth-gated POST /settings (query form). request() carries
@@ -1096,6 +1120,16 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
         flash('s-safety-msg', 'Saved.', 'is-ok');
       })
       .catch(function(j){ flash('s-safety-msg', 'Save failed: '+((j&&(j.message||j.error))||'error'), 'is-error'); });
+  });
+  /* Cooldown "cool down to" temperature -> POST /settings?cool_release= (°C). */
+  $('s-cool-save').addEventListener('click', function(){
+    flash('s-cool-msg', 'Saving…');
+    request('/settings?cool_release='+sset.cool.val, {})
+      .then(function(s){
+        if(s && isFinite(s.cool_release)) setSset('cool', s.cool_release);
+        flash('s-cool-msg', 'Saved.', 'is-ok');
+      })
+      .catch(function(j){ flash('s-cool-msg', 'Save failed: '+((j&&(j.message||j.error))||'error'), 'is-error'); });
   });
 
   /* ===== U4: Sensor calibration (GET/POST /api/v2/calibration) ================
