@@ -150,6 +150,10 @@ static void recompute_printer_state(void)
 // Copy a JSON string field into `dst` (uppercase) if present.
 static void copy_upper(char *dst, size_t dst_sz, const char *src)
 {
+    // Guard the empty buffer: dst_sz-1 is unsigned, so a 0 size would wrap to
+    // SIZE_MAX and defeat the bound. No caller passes 0 today; this makes it safe
+    // regardless (and there is no room to write even a NUL).
+    if (dst_sz == 0) return;
     size_t i = 0;
     // Bounds check first so the destination index is proven in range before the
     // source byte is read (behaviour-identical: src is NUL-terminated).

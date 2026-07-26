@@ -40,14 +40,26 @@ project(dragonbreath)
 # E1 (Phase E) — warnings-as-errors for OUR OWN first-party components only.
 # Applied here (after project(), when the per-component library targets exist) as a
 # PRIVATE option so it never leaks to ESP-IDF's own components or to dependents.
-# These are the pb_* components auto-discovered from components/; ESP-IDF framework
-# code is deliberately excluded (we do not control its warning cleanliness). Both
-# the default and release builds must stay clean under these flags.
-set(DB_OWN_COMPONENTS
-    pb_board pb_buttons pb_evlog pb_fan pb_heater pb_hil pb_httpd
-    pb_leds pb_moonraker pb_ntc pb_policy pb_portal pb_wifi)
-foreach(db_comp ${DB_OWN_COMPONENTS})
-    if(TARGET __idf_${db_comp})
-        target_compile_options(__idf_${db_comp} PRIVATE -Wall -Wextra -Werror)
+# ESP-IDF framework code is deliberately excluded (we do not control its warning
+# cleanliness). Both the default and release builds must stay clean under these flags.
+#
+# The pb_* components are auto-discovered from components/ (so a new one is covered
+# automatically), and we assert at least one matched: if ESP-IDF ever changes the
+# internal component-target naming (__idf_<name>), this fails the configure loudly
+# instead of silently applying -Werror to nothing.
+file(GLOB DB_OWN_COMPONENT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/components/pb_*)
+set(DB_WERROR_APPLIED 0)
+foreach(db_dir ${DB_OWN_COMPONENT_DIRS})
+    if(IS_DIRECTORY ${db_dir})
+        get_filename_component(db_comp ${db_dir} NAME)
+        if(TARGET __idf_${db_comp})
+            target_compile_options(__idf_${db_comp} PRIVATE -Wall -Wextra -Werror)
+            math(EXPR DB_WERROR_APPLIED "${DB_WERROR_APPLIED} + 1")
+        endif()
     endif()
 endforeach()
+if(DB_WERROR_APPLIED EQUAL 0)
+    message(FATAL_ERROR "E1: -Werror gate matched ZERO pb_* components — "
+                        "the ESP-IDF component-target naming may have changed")
+endif()
+message(STATUS "E1: -Wall -Wextra -Werror applied to ${DB_WERROR_APPLIED} first-party components")
