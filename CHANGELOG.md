@@ -7,6 +7,8 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-07-26
+
 ### Added
 - **Configurable cooldown-fan "cool down to" temperature.** The residual-heat purge
   (the fan that keeps running after a heat session until things cool off) previously
