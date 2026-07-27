@@ -7,6 +7,8 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-07-27
+
 ### Added
 - **Element-temperature foldback limiter (hysteresis).** Instead of driving the heater
   full-power into the 105 °C PTC-element cutoff and hard-faulting, the SSR is now cut off
