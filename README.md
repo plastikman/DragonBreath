@@ -41,6 +41,7 @@ OEM parity → [`docs/OEM_PARITY.md`](docs/OEM_PARITY.md) · hardware →
 | Flasher (`tools/flash.py`) | ✅ Backs up full stock flash first, then flashes; `--restore` returns to stock |
 | Web OTA update | ✅ Dual-OTA + rollback; upload from the UI, verified on hardware (DragonBreath-only, refused while heating) |
 | HIL (`pb_hil` / `tools/hil.py`) | ✅ CH341 devboard suite and non-heating real-Panda UART build/flash/no-flash workflows qualified on hardware; native-USB runtime pending on the tested devboard |
+| Diagnostics (`tools/diag.py`) | ✅ Read-only 2 Hz logger (chamber/PTC/SSR/mode/fault + resolved Rref) → live view + CSV; run during a heat cycle to capture behavior. `python3 tools/diag.py [host] [token]` |
 
 **Shared-core boundary:** board-agnostic infrastructure (WiFi, event log, Moonraker
 client) derives from the [OpenVent](https://github.com/justinh-rahb/OpenVent) family
