@@ -90,7 +90,9 @@ jobs:
           else
             notes="$install"
           fi
-          flags=(--title "DragonBreath firmware ${VERSION}" --notes "$notes")
+          # Title = just the version, so the GitHub Releases left-nav (which truncates)
+          # shows the version instead of a row of identical "DragonBreath firmw…".
+          flags=(--title "${VERSION}" --notes "$notes")
           [ "$IS_TAG" = "true" ] || flags+=(--draft)
           case "$VERSION" in *alpha*|*beta*|*rc*) flags+=(--prerelease);; esac
           gh release create "$VERSION" "${flags[@]}" \
