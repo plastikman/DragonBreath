@@ -135,6 +135,40 @@ dashboard prompts for it and caches it in the browser (localStorage), so it is
 real per-client auth rather than a value baked into public HTML. With no token
 configured, pages use a fixed `web` sentinel (pure CSRF hardening).
 
+## Show the dashboard in Fluidd / Mainsail
+The dashboard embeds directly in the Fluidd/Mainsail printer view as an **iframe
+"camera."** Moonraker's `[webcam]` section supports an `iframe` service that renders a
+URL instead of a video stream — point it at the DragonBreath device and the dashboard
+shows up as a tile. This is **not** a video stream; `service: iframe` embeds the page
+itself (no `target_fps`, no snapshot).
+
+Add this to your Moonraker config. On the Snapmaker U1 extended firmware it goes in
+`printer_data/config/extended/moonraker/99_dragonbreath.cfg`; on other setups use
+`moonraker.conf` (or any included `.cfg`):
+
+```ini
+[webcam dragonbreath]
+enabled: true
+service: iframe
+# Full URL to the DragonBreath DEVICE (a separate box from the printer). Prefer its
+# static-DHCP IP; dragonbreath.local only works if mDNS resolves reliably.
+stream_url: http://dragonbreath.local/
+aspect_ratio: 4:3
+```
+
+Notes:
+- **`stream_url` must be a full `http://…` URL to the device**, not a relative path
+  (a relative path resolves against the printer host, not the ESP32).
+- **Serve Fluidd/Mainsail over `http`.** An `https` UI blocks the DragonBreath `http`
+  iframe (browser mixed-content) — the usual blank-tile cause.
+- No `snapshot_url` is needed — the dashboard has no snapshot endpoint (it only means no
+  selector thumbnail).
+- On a **touch** device the tile collapses to the compact/stacked layout automatically;
+  on desktop it keeps the full layout, so give the tile a reasonable size (`4:3` matches
+  the dashboard's proportions).
+- If a device **control token** is set, the embedded page prompts for it before controls
+  work; read-only viewing needs nothing.
+
 ## Temperature conversion
 Fully reverse-engineered from the stock firmware — a low-side resistance divider
 (`Rntc = Rref·V / (Vsupply − V)`, `Vsupply = 3.3 V`) feeding a 114-entry R/T lookup
