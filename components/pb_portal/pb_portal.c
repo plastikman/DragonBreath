@@ -126,12 +126,25 @@ static void html_attr_escape(const char *in, char *out, size_t outsz)
 static const char PAGE_HEAD[] =
     "<!doctype html><html lang=en><head><meta charset=utf-8>"
     "<meta name=viewport content='width=device-width,initial-scale=1'>"
-    "<meta name=color-scheme content=dark><meta name=referrer content=no-referrer>"
+    "<meta name=color-scheme content='light dark'><meta name=referrer content=no-referrer>"
     "<link rel=icon href=/favicon.ico>"
     "<title>DragonBreath</title><style>"
-    ":root{color-scheme:dark;--bg:#181818;--card:rgba(255,255,255,.05);--accent:#83c3ff;"
-    "--accent-fg:#0d0d0d;--text:#fff;--muted:rgba(255,255,255,.55);--input:rgba(0,0,0,.18);"
-    "--border:rgba(255,255,255,.14);--bad:#ff8549}"
+    // Shares the dashboard's light-dark() token values (app.html) so /setup, /fw
+    // and the captive portal match the app in both themes. Keeps the portal's own
+    // variable NAMES so the component CSS below is unchanged. Follows the device
+    // theme by default; a pinned dashboard choice (localStorage db_theme) is
+    // applied via the head script below.
+    ":root{color-scheme:light dark;"
+    "--text:light-dark(rgb(26 28 31),rgb(255 255 255));"
+    "--bg:light-dark(rgb(255 255 255),rgb(24 24 24));"
+    "--card:color-mix(in oklab,var(--text) 5%,transparent);"
+    "--accent:light-dark(rgb(51 156 255),rgb(131 195 255));"
+    "--accent-fg:light-dark(rgb(255 255 255),rgb(13 13 13));"
+    "--muted:light-dark(rgb(26 28 31 / 49.4%),rgb(255 255 255 / 49.8%));"
+    "--input:light-dark(rgb(26 28 31 / 11.8%),color-mix(in oklab,rgb(0 0 0) 10%,transparent));"
+    "--border:light-dark(rgb(26 28 31 / 8%),rgb(255 255 255 / 8.2%));"
+    "--bad:light-dark(rgb(226 85 7),rgb(255 133 73))}"
+    ":root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}"
     "*{box-sizing:border-box}"
     "body{margin:0;background:var(--bg);color:var(--text);"
     "font:14px/1.4 -apple-system,system-ui,'Segoe UI',Roboto,sans-serif}"
@@ -154,7 +167,12 @@ static const char PAGE_HEAD[] =
     "button:disabled{opacity:.45;cursor:not-allowed}"
     ".srow{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}.srow:last-child{border:0}"
     ".msg{min-height:1.2em;margin-top:.55em;font-size:.78rem;color:var(--muted)}.msg.bad{color:var(--bad)}"
-    "small{color:var(--muted)}a{color:var(--accent)}h3{margin:.2em 0}code{font-size:.9em}</style></head><body>"
+    "small{color:var(--muted)}a{color:var(--accent)}h3{margin:.2em 0}code{font-size:.9em}</style>"
+    // Honor a pinned dashboard theme (same-origin localStorage); 'auto'/unset falls
+    // back to the CSS light-dark() tokens. Runs in <head> pre-render to avoid a flash.
+    "<script>var _t=localStorage.getItem('db_theme');"
+    "if(_t==='light'||_t==='dark')document.documentElement.setAttribute('data-theme',_t);</script>"
+    "</head><body>"
     "<div class=hdr>"
     "<svg viewBox='0 0 32 32' aria-hidden=true><path fill-rule=evenodd "
     "d='M2 15 L8 13 L11 11 L13 8 L15 10 L21 3 L18 11 L21 13 L24 15 L28 17 L23 18 L27 22 L20 20 L18 20 L16 19 L3 19 Z "
