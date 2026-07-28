@@ -119,18 +119,12 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
 .shell{
   height: 100%;
   display: grid;
-  grid-template: 44px minmax(0, 1fr) / 50px minmax(0, 1fr);
+  grid-template: minmax(0, 1fr) / 50px minmax(0, 1fr);   /* rail | main (topbar removed) */
 }
-.topbar{
-  grid-column: 1 / -1; display: flex; align-items: center; gap: 9px;
-  min-width: 0; padding: 0 11px;
-  border-bottom: 1px solid var(--border); background: var(--card);
-}
-.brand{ display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 700; }
-.brand svg{ width: 27px; height: 27px; flex: none; }
-.brand span{ white-space: nowrap; }
-.connection{ margin-left: auto; display: flex; align-items: center; gap: 6px;
-  color: var(--muted-foreground); font-size: 12px; }
+/* Connection status: a dot pinned to the rail bottom (topbar removed). The label
+   is aria/tooltip only — the rail is too narrow for text. */
+.connection{ display: flex; justify-content: center; }
+.connection span{ display: none; }
 .dot{ width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); }
 .app[data-online="1"] .dot{ background: var(--viz-series-2); }
 
@@ -149,16 +143,17 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
   color: var(--primary); border-left-color: var(--primary);
   background: color-mix(in srgb, var(--primary) 12%, transparent);
 }
-.tab:last-child{ margin-top: auto; }
+.tab[data-page="settings"]{ margin-top: auto; }   /* settings + connection pinned to rail bottom */
 
-.main{ min-width: 0; min-height: 0; overflow: hidden; padding: 12px; }
-.heading{ display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.heading h2{ margin: 0; font-size: 18px; }
-.mode{ padding: 3px 7px; border: 1px solid var(--border); border-radius: 3px;
-  color: var(--muted-foreground); font-size: 11px; text-transform: uppercase; }
+.main{ min-width: 0; min-height: 0; overflow: hidden; padding: 12px;
+  display: flex; flex-direction: column; }
+/* Brand + version footer replacing the removed header brand; pinned at the bottom
+   of the content column. */
+.app-version{ flex: none; margin-top: 8px; text-align: center;
+  font-size: 11px; color: var(--muted-foreground); }
 
 .grid{
-  height: calc(100% - 35px); display: grid;
+  flex: 1; min-height: 0; display: grid;
   grid-template-columns: minmax(0, 1.18fr) minmax(180px, .82fr);
   grid-template-rows: minmax(0, 1fr) minmax(88px, .55fr); gap: 9px;
 }
@@ -227,7 +222,7 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
 .quick-actions{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
 .quick-actions .btn{ display: flex; justify-content: center; align-items: center; gap: 6px; }
 
-.page-only{ display: none; height: calc(100% - 35px); padding: 18px; overflow: auto;
+.page-only{ display: none; flex: 1; min-height: 0; padding: 18px; overflow: auto;
   border: 1px solid var(--border); border-radius: 5px; background: var(--card); }
 .page-only h3{ margin: 0 0 8px; font-size: 15px; }
 .page-only p{ max-width: 520px; color: var(--muted-foreground); }
@@ -328,23 +323,19 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
 
 /* ---- Compact tile (~439x329) + narrow iframe: prioritize temp/PTC/state/graph/Stop. ---- */
 @container (max-width: 600px){
-  .shell{ grid-template: 39px minmax(0,1fr) / 43px minmax(0,1fr); }
-  .topbar{ padding: 0 7px; }
-  .brand span, .connection span{ display: none; }
+  .shell{ grid-template: minmax(0,1fr) / 43px minmax(0,1fr); }
   .rail{ padding: 5px 3px; gap: 2px; }
   .tab{ width: 34px; height: 34px; }
   .main{ padding: 8px; }
-  .heading{ margin-bottom: 7px; }
-  .heading h2{ font-size: 15px; }
-  .grid{ height: calc(100% - 28px); grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; gap: 7px; }
+  .grid{ grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; gap: 7px; }
   .card{ padding: 8px; }
   .chamber-reading strong{ font-size: 27px; }
   .ptc-reading strong{ font-size: 14px; }
-  .quick-card{ display: none; }        /* secondary controls hidden when compact */
+  .quick-card{ display: none; }        /* short/wide embed tile: hide secondary controls */
   .summary{ font-size: 11px; }
   .target{ display: none; }   /* keep PTC visible in compact; drop only secondary copy */
-  .page-only{ height: calc(100% - 28px); padding: 10px; }
-  .page-only > p{ display: none; }
+  .app-version{ display: none; }       /* no room in the short tile */
+  .page-only{ padding: 10px; }
   .mode-controls{ gap: 8px; }
   .touch-adjust{ grid-template-columns: 46px minmax(70px,1fr) 46px; gap: 6px; }
   .step-btn{ min-height: 42px; height: 42px; }
@@ -355,6 +346,21 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
   .settings{ gap: 8px; }
   .set-card{ padding: 9px; gap: 7px; }
   .log-list{ max-height: 150px; }
+}
+
+/* ---- Standalone phone (narrow VIEWPORT): stack the dashboard vertically —
+   graph on top, status in the middle, controls at the bottom — and scroll. The
+   @container tile rules above still govern the desktop-embedded Fluidd panel;
+   this viewport query fires only on an actual phone and wins by source order. ---- */
+@media (max-width: 600px){
+  .main{ overflow-y: auto; }
+  .grid{ flex: 0 0 auto; min-height: auto;
+    display: flex; flex-direction: column; gap: 8px; }   /* graph / status / controls, DOM order */
+  .temp-card{ min-height: 230px; }                       /* keep the chart readable */
+  .quick-card{ display: block; }                         /* controls belong on the phone */
+  .target{ display: block; }                             /* re-show the target line */
+  .app-version{ display: block; }
+  .chamber-reading strong{ font-size: 32px; }
 }
 </style>
 </head>
@@ -381,32 +387,18 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
 
 <div class="app" data-state="off" data-online="0">
   <div class="shell">
-    <header class="topbar">
-      <div class="brand" id="brand" title="DragonBreath">
-        <!-- DragonBreath mark: an angular dragon-head profile (swept-back horn,
-             open maw, eye). Monochrome currentColor so it inherits the theme and
-             reads clearly even at favicon size / when the wordmark is hidden. -->
-        <svg viewBox="0 0 32 32" role="img" aria-label="DragonBreath logo" fill="currentColor">
-          <path fill-rule="evenodd" d="M2 15 8 13 11 11 13 8 15 10 21 3 18 11 21 13 24 15 28 17 23 18 27 22 20 20 18 20 16 19 3 19Z M10 12a1.4 1.4 0 100 2.8 1.4 1.4 0 000-2.8Z"/>
-        </svg>
-        <span>DragonBreath</span>
-      </div>
-      <div class="connection" aria-label="Connection"><i class="dot"></i><span id="db-conn">Connecting…</span></div>
-    </header>
-
     <nav class="rail" aria-label="Primary navigation">
       <button class="tab" type="button" data-page="home" aria-selected="true" aria-label="Dashboard"><svg class="icon"><use href="#i-house"/></svg></button>
       <button class="tab" type="button" data-page="manual" aria-selected="false" aria-label="Manual heat"><svg class="icon"><use href="#i-flame"/></svg></button>
       <button class="tab" type="button" data-page="auto" aria-selected="false" aria-label="Automatic mode"><svg class="icon"><use href="#i-refresh"/></svg></button>
       <button class="tab" type="button" data-page="dry" aria-selected="false" aria-label="Dry cycle"><svg class="icon"><use href="#i-wind"/></svg></button>
       <button class="tab" type="button" data-page="settings" aria-selected="false" aria-label="Settings"><svg class="icon"><use href="#i-settings"/></svg></button>
+      <!-- Connection status moved off the (removed) topbar: a status dot pinned to
+           the rail bottom. Text is aria/tooltip only (the rail is too narrow). -->
+      <div class="connection" aria-label="Connection"><i class="dot"></i><span id="db-conn">Connecting…</span></div>
     </nav>
 
     <main class="main" data-page="home">
-      <div class="heading">
-        <h2 id="db-title">Dashboard</h2>
-        <span class="mode" id="db-mode">--</span>
-      </div>
 
       <!-- Dashboard (home). Live-bound to /api/v2/state + /api/v2/events. -->
       <div class="grid">
@@ -473,7 +465,7 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
 
       <!-- Manual: power_on at a chosen chamber target. -->
       <section class="page-only mode-controls" data-page-content="manual">
-        <p>Set a chamber target and heat directly until you stop it.</p>
+        <p><strong>Manual heat:</strong> set a chamber target and heat directly until you stop it.</p>
         <div class="ctl-group">
           <div class="ctl-head">
             <span class="form-label">Target temperature</span>
@@ -501,7 +493,7 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
 
       <!-- Automatic: follow the printer bed above a threshold (auto command). -->
       <section class="page-only mode-controls" data-page-content="auto">
-        <p>Follow the printer bed: arm a chamber target that engages once the bed passes a threshold. Requires Moonraker.</p>
+        <p><strong>Automatic mode:</strong> follow the printer bed — arm a chamber target that engages once the bed passes a threshold. Requires Moonraker.</p>
         <div class="ctl-group">
           <div class="ctl-head">
             <span class="form-label">Chamber target</span>
@@ -535,7 +527,7 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
 
       <!-- Dry: timed drying cycle (drying_start / drying_stop). -->
       <section class="page-only mode-controls" data-page-content="dry">
-        <p>Run a timed filament-drying cycle at a chosen temperature.</p>
+        <p><strong>Dry cycle:</strong> run a timed filament-drying cycle at a chosen temperature.</p>
         <div class="presets" aria-label="Material presets">
           <button class="btn btn-sm" type="button" data-drypreset="45,6">PLA 45° 6h</button>
           <button class="btn btn-sm" type="button" data-drypreset="65,4">PETG 65° 4h</button>
@@ -776,6 +768,9 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
           <div class="mode-feedback" id="s-maint-msg" role="status" aria-live="polite"></div>
         </div>
       </section>
+
+      <!-- Brand + firmware version footer (replaces the removed header brand). -->
+      <div class="app-version">DragonBreath <span id="db-version">—</span></div>
     </main>
   </div>
 </div>
@@ -933,7 +928,7 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     u('db-temp', c.temperature_c==null ? '--' : Number(c.temperature_c).toFixed(1));
     u('db-ptc', deg(p.temperature_c)+(p.status==='ok'?'':' ('+p.status+')'));
     u('db-target', s.target.effective_c>0 ? Math.round(s.target.effective_c)+' °C' : 'Off');
-    u('db-mode', modeLabel(s.mode));
+    u('db-version', s.firmware || '—');
 
     /* Light up the quick preset matching the active manual target, the same way the
        Filtration button shows its state (.btn[aria-pressed="true"]). */
@@ -1068,11 +1063,9 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
 
   /* ---- Navigation: rail tabs. Home = live Dashboard; manual/auto/dry = U2 control
      screens; settings = U3/U4 screen. CSS routes the matching page-only section. ---- */
-  var pageTitles={ home:'Dashboard', manual:'Manual heat', auto:'Automatic mode', dry:'Dry cycle', settings:'Settings' };
   document.querySelectorAll('.tab').forEach(function(tab){
     tab.addEventListener('click', function(){
       var page=tab.dataset.page;
-      $('db-title').textContent = pageTitles[page] || 'Dashboard';
       document.querySelector('.main').dataset.page = page;
       document.querySelectorAll('.tab').forEach(function(t){ t.setAttribute('aria-selected', String(t===tab)); });
       if(page==='settings'){ loadSafety(); loadCalibration(); loadLogs(); }   /* U3/U4: refresh on open */
