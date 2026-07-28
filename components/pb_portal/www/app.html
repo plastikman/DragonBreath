@@ -455,7 +455,7 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
             <div><dt>Controller</dt><dd id="db-controller">--</dd></div>
             <div id="db-auto-row" hidden><dt>Auto</dt><dd id="db-auto">--</dd></div>
             <div id="db-drying-row" hidden><dt>Drying</dt><dd id="db-drying">--</dd></div>
-            <div><dt>Printer</dt><dd id="db-printer">--</dd></div>
+            <div><dt id="db-printer-label">Printer</dt><dd id="db-printer">--</dd></div>
             <div><dt>Fault</dt><dd id="db-fault">--</dd></div>
           </dl>
           <div class="actions">
@@ -994,9 +994,20 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     var dryRow = s.drying.active;
     $('db-drying-row').hidden = !dryRow;
     if(dryRow) u('db-drying', fmtDur(s.drying.remaining_seconds)+' left');
-    u('db-printer', s.environment.moonraker_connected
-      ? 'connected'+(s.environment.bed_temperature_c!=null ? ' · bed '+Math.round(s.environment.bed_temperature_c)+' °C' : '')
-      : 'not connected');
+    /* Printer/source row is source-aware: Klipper/Bambu follow a printer bed (show
+       link + bed); Home Assistant has no printer to follow (HA is the controller),
+       so relabel the row and show the source instead of a misleading "not connected". */
+    var src = s.environment.control_source || 'klipper';
+    var plabel = $('db-printer-label');
+    if(src==='ha'){
+      if(plabel) plabel.textContent='Source';
+      u('db-printer','Home Assistant');
+    } else {
+      if(plabel) plabel.textContent = (src==='bambu') ? 'Bambu' : 'Printer';
+      u('db-printer', s.environment.moonraker_connected
+        ? 'connected'+(s.environment.bed_temperature_c!=null ? ' · bed '+Math.round(s.environment.bed_temperature_c)+' °C' : '')
+        : 'not connected');
+    }
     u('db-fault', s.safety.inhibited ? ('inhibited: '+(s.safety.reason||'unknown'))
       : s.safety.fault_latched ? ('latched: '+(s.safety.reason||'unknown')) : 'none');
 

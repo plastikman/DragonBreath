@@ -7,6 +7,15 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.8.0-rc3] - 2026-07-28
+
+### Changed
+- **Dashboard status is control-source-aware.** In Home Assistant mode the
+  "Printer" row (which read a misleading "not connected", since HA has no printer
+  to follow) is relabeled **"Source: Home Assistant"**; Bambu mode labels it
+  "Bambu". Klipper mode is unchanged. The active source is exposed as
+  `environment.control_source` in the state API.
+
 ## [0.8.0-rc2] - 2026-07-28
 
 ### Changed

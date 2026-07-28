@@ -4,6 +4,7 @@
 #include "pb_ntc.h"
 #include "pb_leds.h"
 #include "pb_policy.h"
+#include "pb_source.h"
 #include "pb_evlog.h"
 
 #include "esp_http_server.h"
@@ -151,6 +152,10 @@ static cJSON *state_json(const pb_policy_snapshot_t *s)
     cJSON_AddStringToObject(ptc, "status", ntc_status_str(s->ptc_status));
 
     cJSON *environment = cJSON_AddObjectToObject(o, "environment");
+    // Active control source (klipper/bambu/ha). Read from NVS; since /setup reboots
+    // on save, this matches the running source except for the sub-second window
+    // between a save and the reboot. Lets the dashboard label the printer/source row.
+    cJSON_AddStringToObject(environment, "control_source", pb_source_str(pb_source_get()));
     cJSON_AddBoolToObject(environment, "moonraker_connected", s->moonraker_connected);
     add_num1(environment, "bed_temperature_c", s->bed_c);
     add_num1(environment, "bed_target_c", s->bed_target_c);
