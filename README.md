@@ -52,6 +52,19 @@ but is now **vendored locally** as `components/pb_wifi` / `pb_evlog` / `pb_moonr
 rename. Everything device-specific — the board map, sensors, heater/fan actuation,
 and the portal / LED / button UI — is likewise first-party in this repo.
 
+## Chamber temperature — what to expect
+The stock Panda firmware caps the chamber target at **60 °C**. **DragonBreath lifts
+this to 70 °C.** Reaching the top of that range is **possible, not guaranteed** —
+**65 °C is readily achievable** on a typical enclosure, and 70 °C is within reach
+given the right conditions. The limiting factor is your **enclosure insulation and
+time**, not the firmware. The PTC element is self-limiting and the firmware folds
+heater power back below its safety cutoff, so once the element saturates the chamber
+only climbs as fast as the enclosure can hold the heat. A well-sealed, insulated
+chamber given enough soak time will reach higher and hold it; a leaky one (taped
+seams, thin panels) plateaus lower no matter how long it runs. If you're stalling
+short of a target, add insulation and allow more warm-up time before assuming a
+hardware limit. 60–65 °C covers ASA/ABS comfortably.
+
 ## Screenshots
 <p>
 <img src="docs/screenshots/dashboard.png" width="410" alt="Live status dashboard">
