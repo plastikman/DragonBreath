@@ -35,6 +35,10 @@
 #include "mdns.h"
 #include "pb_wifi.h"
 #include "pb_moonraker.h"
+#include "pb_source.h"
+#include "pb_bambu.h"
+#include "pb_ha.h"
+#include <math.h>
 
 #include "pb_httpd.h"
 #include "pb_portal.h"
@@ -55,9 +59,14 @@ static const char *TAG = "dragonbreath";
 // Set true once the network components have been started, so the control loop
 // doesn't touch pb_* state before it's initialized.
 static volatile bool s_net_up = false;
-// Set true only if pb_moonraker_start() succeeded — never query a client that
-// failed to initialize (its internal state/mutex may be unset).
-static volatile bool s_mk_up = false;
+// Set true only if the selected source client's *_start() succeeded — never
+// query a client that failed to initialize (its internal state/mutex may be
+// unset). Exactly one of these is ever set, per the control-source selector.
+static volatile bool s_mk_up    = false;   // Klipper (Moonraker)
+static volatile bool s_bambu_up = false;   // Bambu LAN MQTT
+static volatile bool s_ha_up    = false;   // Home Assistant MQTT
+// The persisted control source, read once at boot. Default Klipper.
+static pb_ctl_source_t s_src = PB_SRC_KLIPPER;
 
 // Control-task handle, so accepted policy commands can update outputs/LEDs
 // without waiting up to a full periodic tick. Panic-off uses the same prompt
@@ -192,9 +201,39 @@ static void control_task(void *arg)
     for (;;) {
         pb_moonraker_status_t st = {0};
 #ifndef CONFIG_PB_HIL_DEVBOARD
-        if (s_net_up && s_mk_up) pb_moonraker_get_status(&st);
-        bool mk_connected = s_mk_up && st.state == PB_MK_SUBSCRIBED;
-        pb_policy_set_env(st.bed_temp, mk_connected);
+        // Feed the AUTO seam from whichever ONE source is bound. All three paths
+        // converge on pb_policy_set_env(bed_c, connected); the policy is
+        // source-agnostic. Not-connected feeds bed_c=0/connected=false (identical
+        // to the pre-selector behavior when Moonraker was down).
+        float bed_c = 0.0f;
+        bool  src_connected = false;
+        if (s_net_up) {
+            switch (s_src) {
+            case PB_SRC_BAMBU:
+                if (s_bambu_up) {
+                    pb_bambu_status_t bs;
+                    pb_bambu_get_status(&bs);
+                    src_connected = (bs.state == PB_BAMBU_SUBSCRIBED);
+                    if (src_connected && isfinite(bs.bed_temp)) bed_c = bs.bed_temp;
+                }
+                break;
+            case PB_SRC_HA:
+                // HA is a controller, not a bed source — no AUTO follow. Pump the
+                // HA client (retained state publish + heat-lease heartbeat); it
+                // drives target/mode through pb_policy directly.
+                if (s_ha_up) pb_ha_tick();
+                break;
+            case PB_SRC_KLIPPER:
+            default:
+                if (s_mk_up) {
+                    pb_moonraker_get_status(&st);
+                    src_connected = (st.state == PB_MK_SUBSCRIBED);
+                    bed_c = st.bed_temp;
+                }
+                break;
+            }
+        }
+        pb_policy_set_env(bed_c, src_connected);
 #endif
 
         // Safety/control loop: enforces every heater cutoff + fan-follows-heater.
@@ -212,12 +251,12 @@ static void control_task(void *arg)
             pb_fan_zc_diag(&zc, &zciv);
             ESP_LOGI(TAG,
                 "rev=%lu mode=%s source=%s target=%.0fC heater=%s | chamber=%.1fC ptc=%.1fC | "
-                "wifi=%d mk=%d printer=%s bed=%.1f | ZC n=%lu dt=%luus",
+                "wifi=%d src=%s mk=%d printer=%s bed=%.1f | ZC n=%lu dt=%luus",
                 (unsigned long)snap.state_revision,
                 pb_policy_mode_str(snap.mode), pb_policy_source_str(snap.source),
                 snap.effective_target_c, snap.heater_output ? "ON" : "off",
                 snap.chamber_c, snap.ptc_c,
-                net ? (int)pb_wifi_state() : -1, (int)st.state,
+                net ? (int)pb_wifi_state() : -1, pb_source_str(s_src), (int)st.state,
                 pb_printer_state_str(st.printer), st.bed_temp,
                 (unsigned long)zc, (unsigned long)zciv);
         }
@@ -304,10 +343,33 @@ void app_main(void)
     // Mains-powered device: disable WiFi modem-sleep so the control API stays
     // responsive (power-save adds ~0.5s latency spikes to incoming requests).
     esp_wifi_set_ps(WIFI_PS_NONE);
-    if ((e = pb_moonraker_start()) != ESP_OK)
-        ESP_LOGE(TAG, "pb_moonraker_start: %s (continuing; will not query moonraker)", esp_err_to_name(e));
-    else
-        s_mk_up = true;
+    // Control-source selector: start ONLY the bound client. Klipper is the
+    // default and the shipped path; Bambu/HA are opt-in. Each is log-and-continue
+    // like the rest of network bring-up — a source that fails to init just leaves
+    // the device without printer-follow, never aborting the safety loop.
+    s_src = pb_source_get();
+    switch (s_src) {
+    case PB_SRC_BAMBU:
+        if ((e = pb_bambu_start()) != ESP_OK)
+            ESP_LOGE(TAG, "pb_bambu_start: %s (continuing; no printer follow)", esp_err_to_name(e));
+        else
+            s_bambu_up = true;
+        break;
+    case PB_SRC_HA:
+        if ((e = pb_ha_start()) != ESP_OK)
+            ESP_LOGE(TAG, "pb_ha_start: %s (continuing; no HA control)", esp_err_to_name(e));
+        else
+            s_ha_up = true;
+        break;
+    case PB_SRC_KLIPPER:
+    default:
+        if ((e = pb_moonraker_start()) != ESP_OK)
+            ESP_LOGE(TAG, "pb_moonraker_start: %s (continuing; will not query moonraker)", esp_err_to_name(e));
+        else
+            s_mk_up = true;
+        break;
+    }
+    ESP_LOGI(TAG, "control source: %s", pb_source_str(s_src));
     if ((e = pb_httpd_start()) != ESP_OK)
         ESP_LOGE(TAG, "pb_httpd_start: %s (continuing)", esp_err_to_name(e));
     else if ((e = pb_portal_start()) != ESP_OK)   // portal needs the httpd handle

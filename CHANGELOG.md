@@ -7,6 +7,36 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.8.0-rc1] - 2026-07-28
+
+### Added
+- **Selectable control source (Klipper / Bambu / Home Assistant).** The device now
+  binds to exactly one printer/controller, chosen in `/setup` under a new "Control
+  source" card. Klipper (Moonraker) remains the default and is unchanged. A new
+  `pb_source` selector persists the choice; `app_main` starts only the selected
+  client and feeds the existing AUTO seam (`pb_policy_set_env`) — the heater safety
+  model is unchanged and fully source-independent.
+- **Home Assistant integration (tested).** New `pb_ha` MQTT client connects to your
+  broker, publishes MQTT Discovery (a climate entity + chamber/element temperature
+  sensors auto-appear in HA), publishes retained state, and maps HA commands to
+  heater target/mode — holding a device lease and heartbeating it like any remote
+  controller. The climate entity declares Celsius (`temp_unit:C`) so HA converts
+  °C↔°F correctly in both display and setpoints. Validated end-to-end on real
+  hardware (device + Home Assistant + Mosquitto).
+- **Bambu LAN integration (experimental — untested against a printer).** New
+  `pb_bambu` MQTT-over-TLS client reads a Bambu printer's bed temperature over its
+  on-device LAN broker (`mqtts://<ip>:8883`, `bblp` + LAN access code, subscribe
+  `device/<serial>/report`, `pushall` on connect) so AUTO can follow a Bambu print.
+  Read-only — no control commands are ever sent to the printer. Built from the
+  OpenBambuAPI / ha-bambulab spec; **not yet validated on real hardware** — select
+  "Bambu" in `/setup` to test. See `plans/control-source-bambu-ha.md`.
+
+### Changed
+- **`/setup` no longer forces Wi-Fi re-entry to change configuration.** In STA mode,
+  saving with the Wi-Fi fields left blank keeps the existing credentials and just
+  applies the control-source/config change. Wi-Fi is still required during initial
+  AP provisioning.
+
 ## [0.7.2] - 2026-07-28
 
 ### Changed

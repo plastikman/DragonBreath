@@ -3,10 +3,12 @@
 #include "pb_dns.h"
 #include "pb_httpd.h"
 #include "pb_wifi.h"
+#include "pb_source.h"
 
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
+#include "esp_system.h"
 #include "esp_app_desc.h"
 #include "nvs.h"
 #include "lwip/inet.h"
@@ -358,18 +360,31 @@ static esp_err_t fw_page(httpd_req_t *req)
     return httpd_resp_send_chunk(req, NULL, 0);
 }
 
-// Wi-Fi + Moonraker config page (AP captive root, and /setup in STA mode).
+// Wi-Fi + control-source config page (AP captive root, and /setup in STA mode).
+// The device binds to exactly ONE control source; the card carries all three
+// field groups and reveals only the selected one (JS). Non-secret values are
+// pre-filled (escaped); secrets (Bambu access code, HA password) are never echoed
+// — an empty field means "leave unchanged" (see save_post).
 static esp_err_t config_page(httpd_req_t *req)
 {
-    char mk_host[64] = {0};
-    uint16_t mk_port = 7125;
+    char mk_host[64] = {0};   uint16_t mk_port = 7125;
+    char bb_host[64] = {0},   bb_serial[32] = {0};
+    char ha_host[64] = {0};   uint16_t ha_port = 1883;
+    char ha_user[32] = {0},   ha_topic[48] = {0};
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READONLY, &h) == ESP_OK) {
-        size_t sz = sizeof mk_host;
-        nvs_get_str(h, "mk_host", mk_host, &sz);
+        size_t sz;
+        sz = sizeof mk_host;   nvs_get_str(h, "mk_host", mk_host, &sz);
         nvs_get_u16(h, "mk_port", &mk_port);
+        sz = sizeof bb_host;   nvs_get_str(h, "bb_host", bb_host, &sz);
+        sz = sizeof bb_serial; nvs_get_str(h, "bb_serial", bb_serial, &sz);
+        sz = sizeof ha_host;   nvs_get_str(h, "ha_host", ha_host, &sz);
+        nvs_get_u16(h, "ha_port", &ha_port);
+        sz = sizeof ha_user;   nvs_get_str(h, "ha_user", ha_user, &sz);
+        sz = sizeof ha_topic;  nvs_get_str(h, "ha_topic", ha_topic, &sz);
         nvs_close(h);
     }
+    pb_ctl_source_t src = pb_source_get();
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     SEND(req, PAGE_HEAD);
@@ -378,18 +393,74 @@ static esp_err_t config_page(httpd_req_t *req)
     send_auth_inject(req);
     SEND(req, CONFIG_WIFI);
 
-    // Moonraker card — values embedded so we never emit an empty chunk. mk_host
-    // is user-controlled (stored in NVS via /save), so escape it before it lands
-    // in the value="..." attribute (stored-XSS prevention). mk_port is a uint16.
-    char mk_host_esc[192];
-    html_attr_escape(mk_host, mk_host_esc, sizeof mk_host_esc);
-    char card[420];
-    snprintf(card, sizeof card,
-        "<div class=card><h2>Printer (Moonraker)</h2>"
+    // Reused buffers: emit each piece before reusing, to keep httpd-task stack
+    // small. esc holds a single HTML-attribute-escaped user value at a time; buf
+    // is sized for the largest piece (the HA group + the reveal <script>).
+    char buf[640], esc[256];
+
+    // Source selector.
+    snprintf(buf, sizeof buf,
+        "<div class=card><h2>Control source</h2>"
+        "<label>Bind this heater to</label>"
+        "<select id=ctlsrc name=ctl_src onchange='srcshow()'>"
+        "<option value=0%s>Klipper (Moonraker)</option>"
+        "<option value=1%s>Bambu (LAN)</option>"
+        "<option value=2%s>Home Assistant</option></select>",
+        src == PB_SRC_KLIPPER ? " selected" : "",
+        src == PB_SRC_BAMBU   ? " selected" : "",
+        src == PB_SRC_HA      ? " selected" : "");
+    SEND(req, buf);
+
+    // Klipper group.
+    html_attr_escape(mk_host, esc, sizeof esc);
+    snprintf(buf, sizeof buf,
+        "<div class=grp data-src=0 style='display:%s'>"
         "<label>Host / IP</label><input name=mk_host value=\"%s\" placeholder='e.g. 10.168.2.34'>"
         "<label>Port</label><input name=mk_port value=\"%u\"></div>",
-        mk_host_esc, (unsigned)mk_port);
-    SEND(req, card);
+        src == PB_SRC_KLIPPER ? "block" : "none", esc, (unsigned)mk_port);
+    SEND(req, buf);
+
+    // Bambu group.
+    html_attr_escape(bb_host, esc, sizeof esc);
+    snprintf(buf, sizeof buf,
+        "<div class=grp data-src=1 style='display:%s'>"
+        "<label>Printer IP</label><input name=bb_host value=\"%s\" placeholder='e.g. 10.168.2.50'>",
+        src == PB_SRC_BAMBU ? "block" : "none", esc);
+    SEND(req, buf);
+    html_attr_escape(bb_serial, esc, sizeof esc);
+    snprintf(buf, sizeof buf,
+        "<label>Serial</label><input name=bb_serial value=\"%s\" placeholder='e.g. 01P00A000000000'>"
+        "<label>LAN access code</label><input name=bb_code type=password placeholder='(unchanged)' autocomplete=off>"
+        "<small style='color:var(--muted)'>Enable <b>LAN Only Mode</b> on the printer; use its Access Code.</small></div>",
+        esc);
+    SEND(req, buf);
+
+    // Home Assistant group.
+    html_attr_escape(ha_host, esc, sizeof esc);
+    snprintf(buf, sizeof buf,
+        "<div class=grp data-src=2 style='display:%s'>"
+        "<label>MQTT broker</label><input name=ha_host value=\"%s\" placeholder='e.g. 10.168.2.10'>"
+        "<label>Port</label><input name=ha_port value=\"%u\">",
+        src == PB_SRC_HA ? "block" : "none", esc, (unsigned)ha_port);
+    SEND(req, buf);
+    html_attr_escape(ha_user, esc, sizeof esc);
+    snprintf(buf, sizeof buf,
+        "<label>Username</label><input name=ha_user value=\"%s\" autocomplete=off>"
+        "<label>Password</label><input name=ha_pass type=password placeholder='(unchanged)' autocomplete=off>",
+        esc);
+    SEND(req, buf);
+    html_attr_escape(ha_topic, esc, sizeof esc);
+    snprintf(buf, sizeof buf,
+        "<label>Topic prefix</label><input name=ha_topic value=\"%s\" placeholder='dragonbreath'></div></div>",
+        esc);
+    SEND(req, buf);
+    // Reveal-only-the-selected-group script (static — kept out of the snprintf
+    // above so it isn't subject to format-truncation on a long topic value).
+    SEND(req,
+        "<script>function srcshow(){var v=document.getElementById('ctlsrc').value,"
+        "g=document.querySelectorAll('.grp');"
+        "for(var i=0;i<g.length;i++)g[i].style.display=(g[i].getAttribute('data-src')==v)?'block':'none';}"
+        "srcshow();</script>");
 
     SEND(req, PAGE_TAIL);
     return httpd_resp_send_chunk(req, NULL, 0);
@@ -460,7 +531,9 @@ static esp_err_t save_post(httpd_req_t *req)
         return httpd_resp_sendstr(req, "{\"error\":\"missing/invalid X-DragonBreath-Auth header\"}");
     }
 
-    char body[640];
+    // Larger than the Wi-Fi-only form: now also carries the control-source
+    // selector + Klipper/Bambu/HA field groups (all groups submit, even hidden).
+    char body[1024];
     int total = 0, r;
     while ((r = httpd_req_recv(req, body + total, sizeof body - 1 - total)) > 0) {
         total += r;
@@ -470,23 +543,57 @@ static esp_err_t save_post(httpd_req_t *req)
 
     char ssid[33] = {0}, ssid_manual[33] = {0}, pass[65] = {0};
     char mk_host[64] = {0}, mk_port_s[8] = {0};
+    char src_s[4] = {0};
+    char bb_host[64] = {0}, bb_serial[32] = {0}, bb_code[32] = {0};
+    char ha_host[64] = {0}, ha_port_s[8] = {0}, ha_user[32] = {0}, ha_pass[64] = {0}, ha_topic[48] = {0};
     form_get(body, "ssid", ssid, sizeof ssid);
     form_get(body, "ssid_manual", ssid_manual, sizeof ssid_manual);
     form_get(body, "password", pass, sizeof pass);
+    form_get(body, "ctl_src", src_s, sizeof src_s);
     form_get(body, "mk_host", mk_host, sizeof mk_host);
     form_get(body, "mk_port", mk_port_s, sizeof mk_port_s);
+    form_get(body, "bb_host", bb_host, sizeof bb_host);
+    form_get(body, "bb_serial", bb_serial, sizeof bb_serial);
+    form_get(body, "bb_code", bb_code, sizeof bb_code);
+    form_get(body, "ha_host", ha_host, sizeof ha_host);
+    form_get(body, "ha_port", ha_port_s, sizeof ha_port_s);
+    form_get(body, "ha_user", ha_user, sizeof ha_user);
+    form_get(body, "ha_pass", ha_pass, sizeof ha_pass);
+    form_get(body, "ha_topic", ha_topic, sizeof ha_topic);
 
     const char *chosen = ssid_manual[0] ? ssid_manual : ssid;
-    if (chosen[0] == '\0') {
+    // In AP/provisioning mode there are no saved creds yet, so a Wi-Fi network is
+    // mandatory. Once joined (STA), Wi-Fi is OPTIONAL: leaving it blank keeps the
+    // existing creds and just applies the control-source/config change — so
+    // switching source (or editing Bambu/HA fields) never forces a Wi-Fi re-entry.
+    bool have_wifi = chosen[0] != '\0';
+    if (!have_wifi && pb_wifi_state() == PB_WIFI_STATE_AP_PORTAL) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "no Wi-Fi network chosen");
         return ESP_FAIL;
     }
 
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        // Control source (0=klipper/1=bambu/2=ha); ignore out-of-range.
+        if (src_s[0]) {
+            int s = atoi(src_s);
+            if (s >= PB_SRC_KLIPPER && s <= PB_SRC_HA) nvs_set_u8(h, "ctl_src", (uint8_t)s);
+        }
+        // Klipper.
         if (mk_host[0]) nvs_set_str(h, "mk_host", mk_host);
         int port = atoi(mk_port_s);
         if (port > 0 && port < 65536) nvs_set_u16(h, "mk_port", (uint16_t)port);
+        // Bambu (secret bb_code only written when re-entered).
+        if (bb_host[0])   nvs_set_str(h, "bb_host", bb_host);
+        if (bb_serial[0]) nvs_set_str(h, "bb_serial", bb_serial);
+        if (bb_code[0])   nvs_set_str(h, "bb_code", bb_code);
+        // Home Assistant (secret ha_pass only written when re-entered).
+        if (ha_host[0])  nvs_set_str(h, "ha_host", ha_host);
+        int hp = atoi(ha_port_s);
+        if (hp > 0 && hp < 65536) nvs_set_u16(h, "ha_port", (uint16_t)hp);
+        if (ha_user[0])  nvs_set_str(h, "ha_user", ha_user);
+        if (ha_pass[0])  nvs_set_str(h, "ha_pass", ha_pass);
+        if (ha_topic[0]) nvs_set_str(h, "ha_topic", ha_topic);
         nvs_commit(h);
         nvs_close(h);
     }
@@ -496,10 +603,16 @@ static esp_err_t save_post(httpd_req_t *req)
         "<!doctype html><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1'>"
         "<body style='font-family:system-ui,sans-serif;text-align:center;margin-top:3em;background:#141414;color:#eee'>"
-        "<h2>Saved &#10003;</h2><p>Rebooting and joining your Wi-Fi&hellip;</p>"
+        "<h2>Saved &#10003;</h2><p>Rebooting&hellip;</p>"
         "<p><small>This page will disconnect \xE2\x80\x94 that's expected.</small></p>");
-    ESP_LOGI(TAG, "provisioned SSID='%s' moonraker='%s' — rebooting", chosen, mk_host);
-    pb_wifi_save_creds_and_reboot(chosen, pass);   // writes ssid/password + reboots
+    if (have_wifi) {
+        ESP_LOGI(TAG, "provisioned SSID='%s' — rebooting", chosen);
+        pb_wifi_save_creds_and_reboot(chosen, pass);   // writes ssid/password + reboots
+    } else {
+        // STA config-only change: keep Wi-Fi creds, apply the new source on reboot.
+        ESP_LOGI(TAG, "config saved (Wi-Fi unchanged) — rebooting");
+        esp_restart();
+    }
     return ESP_OK;                                  // unreachable
 }
 
