@@ -7,6 +7,18 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-07-27
+
+### Added
+- **Configurable element-foldback cut (advanced).** The soft over-temp foldback cut
+  temperature is now user-settable in **Settings → Foldback cut** (`GET/POST
+  /settings?fb_cut=`), bounded to **90–104 °C**. It defaults to **auto** — the board's
+  per-Rref value (99 °C on 33 kΩ / V1.0, 102 °C on 82 kΩ / V1.0.1) — and the slider shows
+  that default; setting it back to the default clears the override (0 = auto). Lower it if
+  the element runs hot/slow, raise it for more chamber temperature. This only shifts where
+  the **soft** foldback engages; the fixed **105 °C hardware cutoff is unaffected** and the
+  override can never exceed 104 °C, so it can't defeat over-temp protection.
+
 ## [0.6.3] - 2026-07-27
 
 ### Added

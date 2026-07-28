@@ -43,12 +43,14 @@ static bool        s_fb_cut;        // control-task only — element-foldback hy
 static float       s_max_target_c;      // guarded by s_mux — settable set-point ceiling
 static int64_t     s_comms_timeout_us;  // guarded by s_mux — comms deadman (microseconds)
 static float       s_cool_release_c;    // guarded by s_mux — residual-heat purge "cool down to" temp
+static float       s_fb_cut_c;          // guarded by s_mux — user foldback-cut override (0 = auto/per-Rref)
 
 // Persisted settings live in the shared app_nvs namespace (centi-°C / ms u32).
 #define NVS_NS             "app_nvs"
 #define KEY_HEAT_MAX_C     "heat_max_c"      // u32 centi-°C
 #define KEY_HEAT_COMMS_MS  "heat_comms_ms"   // u32 ms
 #define KEY_COOL_REL_C     "cool_rel_c"      // u32 centi-°C — cooldown-purge release temp
+#define KEY_FB_CUT_C       "fb_cut_c"        // u32 centi-°C — foldback-cut override (0 = auto)
 #define KEY_FAULT_LATCH    "fault_latch"     // u8 0/1 — persisted safety-fault latch
 #define KEY_FAULT_CODE     "fault_code"      // u8 pb_fault_reason_t
 
@@ -118,6 +120,7 @@ esp_err_t pb_heater_init(void)
     s_max_target_c = PB_HEATER_MAX_TARGET_C_DEFAULT;
     s_comms_timeout_us = (int64_t)PB_HEATER_COMMS_TIMEOUT_MS_DEFAULT * 1000;
     s_cool_release_c = PB_HEATER_COOL_RELEASE_C_DEFAULT;
+    s_fb_cut_c = 0.0f;   // auto (per-Rref default) until a user override is loaded/set
     taskEXIT_CRITICAL(&s_mux);
 #ifdef CONFIG_PB_HIL_DEVBOARD
     ESP_LOGW(TAG, "HIL dev-board backend: relay GPIO compiled out");
@@ -166,12 +169,14 @@ void pb_heater_load_config(void)
     float    max_c    = PB_HEATER_MAX_TARGET_C_DEFAULT;
     uint32_t comms_ms = PB_HEATER_COMMS_TIMEOUT_MS_DEFAULT;
     float    cool_c   = PB_HEATER_COOL_RELEASE_C_DEFAULT;
+    float    fb_cut   = 0.0f;   // 0 = auto (per-Rref default)
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READONLY, &h) == ESP_OK) {
         uint32_t v;
         if (nvs_get_u32(h, KEY_HEAT_MAX_C, &v) == ESP_OK)    max_c    = centi_to_c(v);
         if (nvs_get_u32(h, KEY_HEAT_COMMS_MS, &v) == ESP_OK) comms_ms = v;
         if (nvs_get_u32(h, KEY_COOL_REL_C, &v) == ESP_OK)    cool_c   = centi_to_c(v);
+        if (nvs_get_u32(h, KEY_FB_CUT_C, &v) == ESP_OK)      fb_cut   = centi_to_c(v);
         nvs_close(h);
     }
     // Clamp to the safe envelope regardless of what NVS held (defends against a
@@ -182,14 +187,20 @@ void pb_heater_load_config(void)
     if (comms_ms > PB_HEATER_COMMS_TIMEOUT_MS_MAX) comms_ms = PB_HEATER_COMMS_TIMEOUT_MS_MAX;
     if (cool_c < PB_HEATER_COOL_RELEASE_MIN_C) cool_c = PB_HEATER_COOL_RELEASE_MIN_C;
     if (cool_c > PB_HEATER_COOL_RELEASE_MAX_C) cool_c = PB_HEATER_COOL_RELEASE_MAX_C;
+    // fb_cut: 0 stays "auto"; any positive value is clamped to the safe soft-foldback band.
+    if (fb_cut > 0.0f) {
+        if (fb_cut < PB_HEATER_FB_CUT_MIN_C) fb_cut = PB_HEATER_FB_CUT_MIN_C;
+        if (fb_cut > PB_HEATER_FB_CUT_MAX_C) fb_cut = PB_HEATER_FB_CUT_MAX_C;
+    }
     taskENTER_CRITICAL(&s_mux);
     s_max_target_c = max_c;
     s_comms_timeout_us = (int64_t)comms_ms * 1000;
     s_cool_release_c = cool_c;
+    s_fb_cut_c = fb_cut;
     if (s_target_c > s_max_target_c) s_target_c = s_max_target_c;
     taskEXIT_CRITICAL(&s_mux);
-    ESP_LOGI(TAG, "config: max_target=%.1fC comms_timeout=%ums cool_release=%.1fC",
-             max_c, (unsigned)comms_ms, cool_c);
+    ESP_LOGI(TAG, "config: max_target=%.1fC comms_timeout=%ums cool_release=%.1fC fb_cut=%.1fC",
+             max_c, (unsigned)comms_ms, cool_c, fb_cut);
 }
 
 esp_err_t pb_heater_set_max_target_c(float max_c)
@@ -266,6 +277,37 @@ float pb_heater_get_cool_release_c(void)
 {
     taskENTER_CRITICAL(&s_mux);
     float c = s_cool_release_c;
+    taskEXIT_CRITICAL(&s_mux);
+    return c;
+}
+
+esp_err_t pb_heater_set_fb_cut_c(float c)
+{
+    if (!isfinite(c)) return ESP_ERR_INVALID_ARG;
+    if (c <= 0.0f) {
+        c = 0.0f;                                   // clear override -> auto (per-Rref)
+    } else {
+        if (c < PB_HEATER_FB_CUT_MIN_C) c = PB_HEATER_FB_CUT_MIN_C;
+        if (c > PB_HEATER_FB_CUT_MAX_C) c = PB_HEATER_FB_CUT_MAX_C;
+    }
+    taskENTER_CRITICAL(&s_mux);
+    s_fb_cut_c = c;
+    taskEXIT_CRITICAL(&s_mux);
+    nvs_handle_t h;                                 // persist outside the lock
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u32(h, KEY_FB_CUT_C, c_to_centi(c));   // 0 = auto
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    if (c > 0.0f) ESP_LOGI(TAG, "foldback cut override set to %.1f C", c);
+    else          ESP_LOGI(TAG, "foldback cut override cleared (auto/per-Rref)");
+    return ESP_OK;
+}
+
+float pb_heater_get_fb_cut_c(void)
+{
+    taskENTER_CRITICAL(&s_mux);
+    float c = s_fb_cut_c;
     taskEXIT_CRITICAL(&s_mux);
     return c;
 }
@@ -554,7 +596,7 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
     // 105 C hard cutoff. Thresholds are per board Rref variant (33k boards run hotter, so
     // they get a lower cut). Pure + host-tested; ps==OK is guaranteed here (checked above).
     float fb_cut, fb_resume;
-    pb_heater_foldback_thresholds(pb_ntc_rref_kohm(), &fb_cut, &fb_resume);
+    pb_heater_effective_foldback(pb_heater_get_fb_cut_c(), pb_ntc_rref_kohm(), &fb_cut, &fb_resume);
     s_fb_cut = pb_heater_foldback_cut(ps == PB_NTC_OK, ptc_c, s_fb_cut, fb_cut, fb_resume);
 
     // Step 3 — drive the SSR: heat only when the chamber wants it AND the element is not

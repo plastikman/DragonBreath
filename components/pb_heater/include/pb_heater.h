@@ -97,6 +97,24 @@ static inline void pb_heater_foldback_thresholds(int rref_kohm, float *cut_c, fl
     else                 { *cut_c = PB_HEATER_PTC_FOLDBACK_CUT_82K_C; *resume_c = PB_HEATER_PTC_FOLDBACK_RESUME_82K_C; }
 }
 
+// Optional user override of the foldback CUT (advanced setting; see the settable API
+// below). The resume point always trails the cut by one hysteresis band. The override
+// is bounded well under the fixed 105 C hard cutoff, so it can never defeat over-temp
+// protection — it only shifts where the SOFT foldback engages. 0 = "auto" (use the
+// board's per-Rref default from pb_heater_foldback_thresholds).
+#define PB_HEATER_PTC_FOLDBACK_BAND_C   3.0f    // resume = cut - band
+#define PB_HEATER_FB_CUT_MIN_C          90.0f
+#define PB_HEATER_FB_CUT_MAX_C         104.0f   // < 105 hard cutoff, always
+
+// Resolve the EFFECTIVE cut/resume: a positive user override wins (resume = cut - band),
+// otherwise fall back to the board's per-Rref default. Pure/inline for host testing.
+static inline void pb_heater_effective_foldback(float user_cut_c, int rref_kohm,
+                                                 float *cut_c, float *resume_c)
+{
+    if (user_cut_c > 0.0f) { *cut_c = user_cut_c; *resume_c = user_cut_c - PB_HEATER_PTC_FOLDBACK_BAND_C; }
+    else                     pb_heater_foldback_thresholds(rref_kohm, cut_c, resume_c);
+}
+
 // Pure element-foldback hysteresis, inline so it is host-testable without hardware.
 // Returns whether to FORCE the SSR off this tick given the element temperature, whether
 // its reading is valid, the previous cut-latch state, and the board's cut/resume points:
@@ -174,6 +192,12 @@ uint32_t  pb_heater_get_comms_timeout_ms(void);
 // residual-heat purge (pb_purge_decide).
 esp_err_t pb_heater_set_cool_release_c(float c);
 float     pb_heater_get_cool_release_c(void);
+// Advanced: user override of the element-foldback CUT temperature. Setter clamps a
+// positive value to [FB_CUT_MIN_C, FB_CUT_MAX_C] and persists it; pass <= 0 to clear
+// the override and return to the board's per-Rref default. Getter returns the raw
+// stored value (0 = auto). The resume point always trails by one hysteresis band.
+esp_err_t pb_heater_set_fb_cut_c(float c);
+float     pb_heater_get_fb_cut_c(void);
 
 // Feed the comms watchdog: call whenever a live controller link is confirmed
 // (Moonraker connected, or a fresh command). If not called within

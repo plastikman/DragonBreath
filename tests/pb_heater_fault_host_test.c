@@ -93,6 +93,17 @@ int main(void)
         // Every board's cut/resume stays below the hard cutoff.
         CHECK(cut_c < PB_HEATER_PTC_CUTOFF_C && resume_c < cut_c);
     }
+    // Effective-foldback resolver: 0/negative user override -> per-Rref default; a
+    // positive override wins with resume = cut - band. Stays below the hard cutoff.
+    float ec, er;
+    pb_heater_effective_foldback(0.0f, 33, &ec, &er);    // auto -> 33k pair
+    CHECK(ec == cut33 && er == res33);
+    pb_heater_effective_foldback(-1.0f, 82, &ec, &er);   // <=0 also auto -> 82k pair
+    CHECK(ec == cut82 && er == res82);
+    pb_heater_effective_foldback(95.0f, 33, &ec, &er);   // override wins over per-Rref
+    CHECK(ec == 95.0f && er == 95.0f - PB_HEATER_PTC_FOLDBACK_BAND_C);
+    CHECK(ec < PB_HEATER_PTC_CUTOFF_C && er < ec);
+    CHECK(PB_HEATER_FB_CUT_MAX_C < PB_HEATER_PTC_CUTOFF_C);   // override ceiling < hard cutoff
     puts("pb_heater element-foldback checks: PASS");
     return 0;
 }

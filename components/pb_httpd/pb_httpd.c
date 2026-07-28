@@ -627,11 +627,15 @@ static esp_err_t events_get(httpd_req_t *req)
 // the response to a successful POST /settings).
 static esp_err_t settings_send(httpd_req_t *req)
 {
-    char buf[352];
+    // Board's per-Rref foldback-cut default (shown as the slider's "auto" value).
+    float fbdef_cut, fbdef_resume;
+    pb_heater_foldback_thresholds(pb_ntc_rref_kohm(), &fbdef_cut, &fbdef_resume);
+    char buf[480];
     int n = snprintf(buf, sizeof buf,
         "{\"max\":%.1f,\"max_min\":%.1f,\"max_abs\":%.1f,"
         "\"comms_ms\":%u,\"comms_ms_min\":%u,\"comms_ms_max\":%u,"
         "\"cool_release\":%.1f,\"cool_release_min\":%.1f,\"cool_release_max\":%.1f,"
+        "\"fb_cut\":%.1f,\"fb_cut_default\":%.1f,\"fb_cut_min\":%.1f,\"fb_cut_max\":%.1f,"
         "\"leds_enabled\":%s}",
         (double)pb_heater_get_max_target_c(),
         (double)PB_HEATER_MIN_TARGET_C,
@@ -642,6 +646,10 @@ static esp_err_t settings_send(httpd_req_t *req)
         (double)pb_heater_get_cool_release_c(),
         (double)PB_HEATER_COOL_RELEASE_MIN_C,
         (double)PB_HEATER_COOL_RELEASE_MAX_C,
+        (double)pb_heater_get_fb_cut_c(),      // 0 = auto (using fb_cut_default below)
+        (double)fbdef_cut,
+        (double)PB_HEATER_FB_CUT_MIN_C,
+        (double)PB_HEATER_FB_CUT_MAX_C,
         pb_leds_get_enabled() ? "true" : "false");
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, buf, n);
@@ -681,7 +689,7 @@ static bool parse_u32(const char *s, uint32_t *out)
     return true;
 }
 
-// POST /settings?max=<C>&comms_ms=<ms>&cool_release=<C>&leds_enabled=<0|1> —
+// POST /settings?max=<C>&comms_ms=<ms>&cool_release=<C>&fb_cut=<C>&leds_enabled=<0|1> —
 // update any subset. Auth-gated. Each field is optional; the safety values are
 // clamped to the safe envelope by pb_heater's setters (the ceiling can never
 // exceed 70 C; the comms deadman stays within [10s, 5min]; cool_release within
@@ -719,6 +727,12 @@ static esp_err_t settings_post(httpd_req_t *req)
         pb_heater_set_cool_release_c(c);   // clamps + persists
         applied = true;
     }
+    if (httpd_query_key_value(q, "fb_cut", v, sizeof v) == ESP_OK) {
+        float c;
+        if (!parse_temp(v, &c)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad fb_cut"); return ESP_FAIL; }
+        pb_heater_set_fb_cut_c(c);   // 0 clears override -> auto; else clamps [90,104] + persists
+        applied = true;
+    }
     if (httpd_query_key_value(q, "leds_enabled", v, sizeof v) == ESP_OK) {
         uint32_t on;
         if (!parse_u32(v, &on)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad leds_enabled"); return ESP_FAIL; }
@@ -728,7 +742,7 @@ static esp_err_t settings_post(httpd_req_t *req)
         applied = true;
     }
     if (!applied) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "no known settings (max, comms_ms, cool_release, leds_enabled)");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "no known settings (max, comms_ms, cool_release, fb_cut, leds_enabled)");
         return ESP_FAIL;
     }
     return settings_send(req);   // echo the clamped result
