@@ -14,11 +14,14 @@ below into the GitHub Release notes.
   v0.7.1 header rework removed the brand element, but the `/api/v2/info` handler
   still set `$('brand').title`, throwing a null-reference that aborted the callback
   before it populated the Maintenance fields. Removed the stale brand-tooltip write.
-- **Mobile dashboard layout no longer triggers on a narrow desktop Fluidd/Mainsail
-  panel.** The dashboard is embedded as an iframe, where a width media query
-  measures the *panel*, not the desktop window — so a narrow desktop panel wrongly
-  got the phone stack. The vertical stack is now gated on `pointer: coarse` (an
-  actual touch device); desktop keeps the embed/tile layout at any panel width.
+- **Desktop no longer reflows or hides controls when the window/panel is narrow.**
+  The dashboard is embedded as an iframe in Mainsail/Fluidd, where container/width
+  queries measure the *panel*, not the desktop window — so a thin desktop panel
+  wrongly triggered the compact tile (which hid the Quick-controls) and, before
+  this, the phone stack. **All** responsive reflow — both the compact tile and the
+  vertical stack — is now gated on `pointer: coarse` (an actual touch device), so
+  desktop (mouse) keeps the full layout at any width and controls never disappear.
+  Mobile is unchanged.
 - **Version footer left-aligned** so it tracks the content's left edge instead of
   centering across the full main width (which drifted away from the ~540 px control
   card on wide screens).

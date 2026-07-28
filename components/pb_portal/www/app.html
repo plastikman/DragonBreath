@@ -324,6 +324,12 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
 }
 
 /* ---- Compact tile (~439x329) + narrow iframe: prioritize temp/PTC/state/graph/Stop. ---- */
+/* Touch devices ONLY. The dashboard is embedded as an iframe in Mainsail/Fluidd,
+   where a container/width query measures the PANEL, not the desktop window — so a
+   thin desktop panel would otherwise reflow and hide controls. Gating on
+   pointer: coarse keeps desktop (mouse) on the full layout at any width; only real
+   phones/tablets get the compact tile below (and the vertical stack further down). */
+@media (pointer: coarse){
 @container (max-width: 600px){
   .shell{ grid-template: minmax(0,1fr) / 43px minmax(0,1fr); }
   .rail{ padding: 5px 3px; gap: 2px; }
@@ -349,11 +355,12 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
   .set-card{ padding: 9px; gap: 7px; }
   .log-list{ max-height: 150px; }
 }
+}
 
-/* ---- Standalone phone (narrow VIEWPORT): stack the dashboard vertically —
-   graph on top, status in the middle, controls at the bottom — and scroll. The
-   @container tile rules above still govern the desktop-embedded Fluidd panel;
-   this viewport query fires only on an actual phone and wins by source order. ---- */
+/* ---- Touch device, narrow viewport: stack the dashboard vertically — graph on
+   top, status in the middle, controls at the bottom — and scroll. Same touch gate
+   as the compact tile above; this stacks and wins by source order. Desktop never
+   matches either block, so it keeps the full layout at any width. ---- */
 @media (max-width: 600px) and (pointer: coarse){
   /* pointer: coarse -> real touch device only. The dashboard is embedded as an
      iframe in Mainsail/Fluidd, where @media width measures the PANEL, not the
