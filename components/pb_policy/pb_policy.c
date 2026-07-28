@@ -559,6 +559,15 @@ pb_policy_result_t pb_policy_set_fan(uint8_t percent, pb_source_t source)
     if (!s_lock) return PB_POLICY_INVALID;
     if (percent > 100) percent = 100;
     xSemaphoreTake(s_lock, portMAX_DELAY);
+    // Manual filtration is an IDLE-ONLY control. While the heater is heating
+    // (armed and not tripped, incl. through foldback cycling) or the residual-heat
+    // cooldown purge is running, the blower is owned by the safety-airflow logic —
+    // reject manual changes so a status-page toggle can't disturb the heat cycle.
+    // (pb_heater_heat_mode() is called under s_lock exactly as pb_policy_tick does.)
+    if (pb_heater_heat_mode() || s.last_cooldown) {
+        xSemaphoreGive(s_lock);
+        return PB_POLICY_BUSY;
+    }
     if (s.requested_fan_percent != percent) {
         s.requested_fan_percent = percent;
         revision_advance_locked(source);
@@ -1085,6 +1094,7 @@ const char *pb_policy_result_str(pb_policy_result_t result)
         case PB_POLICY_INHIBITED:         return "inhibited";
         case PB_POLICY_STALE_LEASE:       return "stale_lease";
         case PB_POLICY_PERSIST_FAILED:    return "persist_failed";
+        case PB_POLICY_BUSY:              return "heater_busy";
         default:                          return "unknown";
     }
 }

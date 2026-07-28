@@ -350,6 +350,9 @@ static esp_err_t policy_error(
     if (result == PB_POLICY_INVALID) {
         status = "400 Bad Request";
         message = "command rejected by authoritative policy";
+    } else if (result == PB_POLICY_BUSY) {
+        status = "409 Conflict";
+        message = "manual filtration is idle-only; the heater is heating or cooling down";
     } else if (result == PB_POLICY_PERSIST_FAILED) {
         status = "500 Internal Server Error";
         message = "fault cleared in RAM but persisting it failed; the latch remains";

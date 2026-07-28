@@ -939,10 +939,18 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     /* At-a-glance detail rows — all from the SSE snapshot. */
     u('db-fan', fanLabel(s));
     u('db-controller', controllerLabel(s));
-    /* Manual filtration blower toggle reflects requested (not effective) fan. */
+    /* Manual filtration blower toggle reflects requested (not effective) fan.
+       Idle-only: locked (dimmed) while heating or cooling down, since the blower is
+       owned by the safety-airflow logic then — the firmware rejects changes too. */
     var filtOn = !!(s.fan && s.fan.requested_percent>0);
-    var fbtn=$('db-filter'); if(fbtn) fbtn.setAttribute('aria-pressed', filtOn?'true':'false');
-    u('db-filter-label', filtOn ? 'Filtration: on' : 'Filtration');
+    var filtLocked = (st==='heating' || st==='cooldown');
+    var fbtn=$('db-filter');
+    if(fbtn){
+      fbtn.setAttribute('aria-pressed', filtOn?'true':'false');
+      fbtn.disabled = filtLocked;
+      fbtn.title = filtLocked ? 'Filtration is locked while heating or cooling down' : '';
+    }
+    u('db-filter-label', filtLocked ? 'Filtration locked' : filtOn ? 'Filtration: on' : 'Filtration');
     var autoRow = s.mode==='auto';
     $('db-auto-row').hidden = !autoRow;
     if(autoRow) u('db-auto', s.environment.auto_engaged
