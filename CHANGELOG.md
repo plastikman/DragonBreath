@@ -9,6 +9,16 @@ below into the GitHub Release notes.
 
 ## [0.7.2] - 2026-07-28
 
+### Changed
+- **`/setup` and `/fw` now match the dashboard theme (light + dark).** The
+  captive-portal / provisioning / OTA pages were dark-only with their own palette;
+  they now share the dashboard's `light-dark()` tokens, follow the device theme,
+  and honor a pinned dashboard choice (same-origin `localStorage` `db_theme`). The
+  `/fw` update page is header-free (the product header stays on `/setup` and the AP
+  captive portal), its warnings ("Do not power off during the update") are bold +
+  red, the SHA-256 line wraps instead of overflowing the card, and text no longer
+  breaks mid-word.
+
 ### Fixed
 - **Settings → Maintenance showed "--" for Firmware / Device ID / Boot ID.** The
   v0.7.1 header rework removed the brand element, but the `/api/v2/info` handler
@@ -25,6 +35,9 @@ below into the GitHub Release notes.
 - **Version footer left-aligned** so it tracks the content's left edge instead of
   centering across the full main width (which drifted away from the ~540 px control
   card on wide screens).
+- **Status rows no longer truncate in a narrow card.** The Printer line
+  ("connected · bed 26 °C") was ellipsis-clipped; values now wrap, and in the
+  compact/touch view each row stacks (label above value) so the full line shows.
 
 ## [0.7.1] - 2026-07-28
 
