@@ -9,12 +9,12 @@ DragonBreath mirrors OpenVent's ESP-IDF + `components/` layout on purpose, so th
 shared core (WiFi, captive portal, Moonraker client) is lifted in rather than
 re-implemented.
 
-> ⚠️ **Hardware validated on board revision V1.0.1 only.** The pin map, sensor
+> ⚠️ **Hardware validated on board revisions V1.0.1 and V1.0.** The pin map, sensor
 > conversion, and heater/fan actuation were reverse-engineered and validated on a
-> V1.0.1 board (boot, OTA, heat cycle, and the element-foldback limiter). A V1.0
-> board appears functionally identical (same PSU, SSR, NTCs, and pinout) and is
-> **expected** to work, but that is **not yet confirmed on hardware** — feedback
-> from a V1.0 user is pending. Other Panda Breath revisions are untested —
+> V1.0.1 board (82 kΩ Rref — boot, OTA, heat cycle, and the element-foldback
+> limiter). The V1.0 board (33 kΩ Rref) has since been **confirmed in the field via
+> a user's heat-cycle logs**, including the per-board foldback holding the element
+> under the cutoff. Other Panda Breath revisions are untested —
 > **verify the pinout against your own board before flashing.** This is community
 > firmware with no warranty — read [`docs/SAFETY.md`](docs/SAFETY.md) and
 > supervise early runs.
@@ -28,9 +28,9 @@ OEM parity → [`docs/OEM_PARITY.md`](docs/OEM_PARITY.md) · hardware →
 ## Status
 | Component | State |
 |---|---|
-| `pb_board` | ✅ Pinout RE'd (V1.0.1); boots on hardware (V1.0.1 confirmed; V1.0 pending) |
-| `pb_ntc` | ✅ Stock conversion ported; **hardware-validated** (reads chamber temp matching the printer) |
-| `pb_heater` | ✅ Bang-bang + full safety cutoffs; SSR confirmed, heat cycle validated on hardware |
+| `pb_board` | ✅ Pinout RE'd; boots on hardware (V1.0.1/82k on our bench; V1.0/33k confirmed in the field) |
+| `pb_ntc` | ✅ Stock conversion ported; **hardware-validated** (reads chamber temp matching the printer); Rref auto-detected per board (82k V1.0.1 / 33k V1.0) with a dual-pull fail-safe |
+| `pb_heater` | ✅ Bang-bang + full safety cutoffs + per-board element foldback; heat cycle and foldback validated on hardware |
 | `pb_fan` | ✅ TRIAC **on/off held-gate** (stock model — the gate is never PWM'd/phase-chopped) |
 | `pb_policy` | ✅ Authoritative mode/target/lease state machine |
 | Network core: `pb_wifi` / `pb_evlog` / `pb_moonraker` | ✅ Vendored locally (derived from OpenVent, MIT — see [VENDORING.md](VENDORING.md)); WiFi + Moonraker validated on hardware |
@@ -86,16 +86,24 @@ auto / light / dark toggle are built in.
 ESP32-C3-MINI-1, mains PSU, PTC heater via SSR (GPIO18), ~220 VAC blower switched
 by a **TRIAC held on/off** (GPIO3 gate + GPIO7 zero-cross — **never** phase-angle
 PWM'd), two NTCs on ADC1. Full map: [`docs/HARDWARE.md`](docs/HARDWARE.md).
-Reverse-engineered and validated on a **V1.0.1** board (**V1.0** looks identical
-but is not yet hardware-confirmed).
+Reverse-engineered and validated on a **V1.0.1** board (82 kΩ Rref); the **V1.0**
+board (33 kΩ Rref) is confirmed in the field via a user's heat-cycle logs.
 
 ## Safety
 Two independent **hardware** over-temp backstops (a bonded thermal cutoff in the
 PTC mains lead + PTC self-limiting physics) bound the worst-case failure to
 roughly the stock firmware's ceiling — they are not defeated by a firmware bug or
-a welded SSR. This firmware adds soft cutoffs + a comms-loss watchdog on top. No
-firmware can *guarantee* the absence of a fault; read [`docs/SAFETY.md`](docs/SAFETY.md)
-before touching heater code and supervise the device.
+a welded SSR. This firmware adds soft cutoffs + a comms-loss watchdog on top,
+including a fixed **105 °C PTC-element cutoff** that latches a fault (and survives a
+power-cycle). Below that, a per-board **element-temperature foldback** cuts the SSR
+with hysteresis to hold the element *under* the hard cutoff instead of tripping it —
+so a hot or poorly-insulated install keeps warming the chamber rather than falling
+into a "clear → trip again" loop. The foldback cut point is per-Rref (99 °C on
+33 kΩ / V1.0, 102 °C on 82 kΩ / V1.0.1) and user-adjustable within **90–104 °C**
+(**Settings → Foldback cut**); it can only *reduce* heater demand and can never
+exceed 104 °C, so it cannot defeat the hard cutoff. No firmware can *guarantee* the
+absence of a fault; read [`docs/SAFETY.md`](docs/SAFETY.md) before touching heater
+code and supervise the device.
 
 ## Control API & access
 `pb_httpd` exposes the versioned HTTP/JSON API on port 80:
@@ -129,8 +137,11 @@ configured, pages use a fixed `web` sentinel (pure CSRF hardening).
 
 ## Temperature conversion
 Fully reverse-engineered from the stock firmware — a low-side resistance divider
-(`Rntc = Rref·V / (Vsupply − V)`, `Vsupply = 3.3 V`, `Rref = 82 kΩ`) feeding a
-114-entry R/T lookup table, not a beta formula. Details + derivation:
+(`Rntc = Rref·V / (Vsupply − V)`, `Vsupply = 3.3 V`) feeding a 114-entry R/T lookup
+table, not a beta formula. `Rref` is **auto-detected per board** from the Rref strap
+— **82 kΩ** on V1.0.1, **33 kΩ** on V1.0 — read once at boot with a dual-pull check
+that fails safe to the conservative value if the strap floats. The same R/T table
+serves both boards. Details + derivation:
 [`docs/NTC_CONVERSION.md`](docs/NTC_CONVERSION.md).
 
 ## Build
