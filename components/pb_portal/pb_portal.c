@@ -118,11 +118,12 @@ static void html_attr_escape(const char *in, char *out, size_t outsz)
 }
 
 // ---- static page pieces ----
-// Charcoal palette + dragon mark matching the STA-mode SPA (app.html) in its dark
-// theme, so /setup, /fw, and the AP captive portal read as the same product rather
-// than the old stock-BIQU blue look. Shared head + CSS + header + <div class=wrap>,
-// used by both the config page (AP captive / /setup) and the /fw update page. These
-// utility pages stay dark (the SPA carries the light/dark toggle).
+// Palette + dragon mark matching the STA-mode SPA (app.html): the same light-dark()
+// tokens, so /setup, /fw, and the AP captive portal read as the same product in
+// BOTH light and dark (following the device theme, or a pinned dashboard choice via
+// localStorage db_theme). PAGE_HEAD is the shared head + CSS + <body>; PAGE_HDR is
+// the product header (shown on /setup + AP captive, omitted on /fw); WRAP_OPEN opens
+// the content column. /fw is header-free; /setup keeps the header.
 static const char PAGE_HEAD[] =
     "<!doctype html><html lang=en><head><meta charset=utf-8>"
     "<meta name=viewport content='width=device-width,initial-scale=1'>"
@@ -167,18 +168,26 @@ static const char PAGE_HEAD[] =
     "button:disabled{opacity:.45;cursor:not-allowed}"
     ".srow{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}.srow:last-child{border:0}"
     ".msg{min-height:1.2em;margin-top:.55em;font-size:.78rem;color:var(--muted)}.msg.bad{color:var(--bad)}"
-    "small{color:var(--muted)}a{color:var(--accent)}h3{margin:.2em 0}code{font-size:.9em}</style>"
+    ".warn{color:var(--bad);font-weight:700}"
+    "small{color:var(--muted)}a{color:var(--accent)}h3{margin:.2em 0}"
+    "code{font-size:.9em;overflow-wrap:anywhere}</style>"
     // Honor a pinned dashboard theme (same-origin localStorage); 'auto'/unset falls
     // back to the CSS light-dark() tokens. Runs in <head> pre-render to avoid a flash.
     "<script>var _t=localStorage.getItem('db_theme');"
     "if(_t==='light'||_t==='dark')document.documentElement.setAttribute('data-theme',_t);</script>"
-    "</head><body>"
+    "</head><body>";
+
+// Product header (dragon mark + wordmark). Shown on /setup and the AP captive
+// portal; omitted on /fw so the update page is header-free.
+static const char PAGE_HDR[] =
     "<div class=hdr>"
     "<svg viewBox='0 0 32 32' aria-hidden=true><path fill-rule=evenodd "
     "d='M2 15 L8 13 L11 11 L13 8 L15 10 L21 3 L18 11 L21 13 L24 15 L28 17 L23 18 L27 22 L20 20 L18 20 L16 19 L3 19 Z "
     "M10 12 a1.4 1.4 0 100 2.8 1.4 1.4 0 000-2.8Z'/></svg>"
-    "<h1>DragonBreath</h1></div>"
-    "<div class=wrap>";
+    "<h1>DragonBreath</h1></div>";
+
+// Content wrapper, opened by each page after the optional header.
+static const char WRAP_OPEN[] = "<div class=wrap>";
 
 // Wi-Fi form card (config page).
 static const char CONFIG_WIFI[] =
@@ -193,22 +202,24 @@ static const char CONFIG_WIFI[] =
 // Dedicated firmware-update page (GET /fw) — DragonBreath OTA only, its own page so
 // it isn't mixed in with Wi-Fi/printer setup.
 static const char FW_BODY[] =
-    "<div id=upd class=card style='display:none;background:#1f3a2a;color:#c9ffe0'></div>"
+    "<div id=upd class=card style='display:none'></div>"
     "<div class=card><h2>Firmware update</h2>"
-    "<p style='margin:.2em 0 .7em;font-size:.85rem;color:#bdbdbd'>Installs an "
+    "<p style='margin:.2em 0 .7em;font-size:.85rem;color:var(--muted)'>Installs an "
     "<b>DragonBreath</b> firmware update (upload <code>dragonbreath.bin</code>). The "
     "image is verified and the device reboots into it; a bad image rolls back on "
     "the next boot.</p>"
-    "<div class=card style='background:#3a2f1f;color:#ffe0b0;font-size:.8rem'>"
+    "<div class=card style='background:color-mix(in srgb,var(--bad) 13%,transparent);"
+    "border-color:color-mix(in srgb,var(--bad) 35%,transparent);font-size:.8rem'>"
     "\xE2\x9A\xA0 This does <b>not</b> restore the stock Panda firmware. To go back to "
     "stock, reflash your saved backup over USB with <code>tools/flash.py --restore</code>.</div>"
     "<label>DragonBreath firmware (.bin)</label>"
     "<input type=file id=fw accept='.bin' onchange='fwsel()'>"
     "<button type=button id=fwbtn class=go onclick='doUpdate()' disabled>Upload &amp; flash</button>"
-    "<div id=fwmsg style='margin-top:.6em;word-break:break-all'><small>Turn the heater OFF first "
-    "(updates are refused while heating). Do not power off during the update.</small></div></div>"
+    "<div id=fwmsg style='margin-top:.6em'><small>Turn the heater OFF first "
+    "(updates are refused while heating). <b class=warn>Do not power off "
+    "during the update.</b></small></div></div>"
     "<p style='text-align:center'><small><a href='/'>\xE2\x86\x90 Back to status</a></small></p>"
-    "<div id=ver style='text-align:center;color:#5a5a5a;font-size:.72rem;margin-top:2px'></div></div>"
+    "<div id=ver style='text-align:center;color:var(--muted);font-size:.72rem;margin-top:2px'></div></div>"
     "<script>" DB_AUTH_JS
     "if(window.DB_VER)document.getElementById('ver').textContent='DragonBreath '+window.DB_VER;"
     // Enable the flash button only once a file is chosen.
@@ -223,12 +234,12 @@ static const char FW_BODY[] =
     "var m=document.getElementById('fwmsg');"
     "if(!f){m.innerHTML='<small>Choose a .bin file first.</small>';return;}"
     "document.getElementById('fwbtn').disabled=true;"
-    "m.innerHTML='<small>Uploading &amp; flashing\\u2026 0%<br>do not power off.</small>';"
+    "m.innerHTML='<small>Uploading &amp; flashing\\u2026 0%<br><b class=warn>Do not power off.</b></small>';"
     "var up=false;var x=new XMLHttpRequest();x.open('POST','/update');"
     "x.setRequestHeader('X-DragonBreath-Auth',tok());"
     "x.upload.onprogress=function(e){if(e.lengthComputable){var p=Math.round(e.loaded/e.total*100);"
-    "m.innerHTML='<small>Uploading &amp; flashing\\u2026 '+p+'%<br>do not power off.</small>';}};"
-    "x.upload.onload=function(){up=true;m.innerHTML='<small>Verifying image\\u2026 do not power off.</small>';};"
+    "m.innerHTML='<small>Uploading &amp; flashing\\u2026 '+p+'%<br><b class=warn>Do not power off.</b></small>';}};"
+    "x.upload.onload=function(){up=true;m.innerHTML='<small>Verifying image\\u2026 <b class=warn>Do not power off.</b></small>';};"
     "x.onload=function(){var j={};try{j=JSON.parse(x.responseText);}catch(e){}"
     "if(j&&j.ok){m.innerHTML='<h3>Flashed \\u2713</h3><small>SHA-256 of uploaded image:<br>"
     "<code>'+(j.sha256||'?')+'</code><br>Rebooting into the new firmware\\u2026 reconnecting.</small>';waitBack();}"
@@ -340,6 +351,7 @@ static esp_err_t fw_page(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     SEND(req, PAGE_HEAD);
+    SEND(req, WRAP_OPEN);     // /fw is header-free (no PAGE_HDR)
     send_auth_inject(req);
     send_version_inject(req);
     SEND(req, FW_BODY);
@@ -361,6 +373,8 @@ static esp_err_t config_page(httpd_req_t *req)
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     SEND(req, PAGE_HEAD);
+    SEND(req, PAGE_HDR);     // product header kept on /setup + AP captive portal
+    SEND(req, WRAP_OPEN);
     send_auth_inject(req);
     SEND(req, CONFIG_WIFI);
 
