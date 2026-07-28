@@ -955,11 +955,13 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     var filtLocked = (st==='heating' || st==='cooldown');
     var fbtn=$('db-filter');
     if(fbtn){
+      // On-only + lit when active (like the presets); dimmed while heating/cooling
+      // since enabling is blocked then (Stop is the only off).
       fbtn.setAttribute('aria-pressed', filtOn?'true':'false');
-      fbtn.disabled = filtLocked;
-      fbtn.title = filtLocked ? 'Filtration is locked while heating or cooling down' : '';
+      fbtn.disabled = filtLocked;   // lit if active, but not clickable during a cycle
+      fbtn.title = filtLocked ? 'Filtration is locked while heating or cooling down — use Stop' : '';
     }
-    u('db-filter-label', filtLocked ? 'Filtration locked' : filtOn ? 'Filtration: on' : 'Filtration');
+    u('db-filter-label', 'Filtration');
     var autoRow = s.mode==='auto';
     $('db-auto-row').hidden = !autoRow;
     if(autoRow) u('db-auto', s.environment.auto_engaged
@@ -1079,12 +1081,12 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
   $('db-stop').addEventListener('click', setOff);
   $('db-clear').addEventListener('click', function(){ command('clear_fault', {}).catch(function(){}); });
 
-  /* Manual filtration blower toggle -> command('filter', {percent}). Fan-only,
-     out-of-band (heater untouched), so it works in any mode. Optimistic UI; the
-     next state snapshot is authoritative. */
+  /* Manual filtration blower — ON-ONLY, like the temperature presets: a click
+     turns it on, and Stop is the single control that turns it (and everything)
+     off. Fan-only, out-of-band (heater untouched). Optimistic UI; the next state
+     snapshot is authoritative. */
   if($('db-filter')) $('db-filter').addEventListener('click', function(){
-    var on = $('db-filter').getAttribute('aria-pressed')!=='true';
-    command('filter', {percent: on?100:0}).catch(function(){});
+    command('filter', {percent:100}).catch(function(){});
   });
 
   /* ===== U2: Manual / Automatic / Dry control screens =========================

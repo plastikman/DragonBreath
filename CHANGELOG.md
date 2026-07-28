@@ -20,7 +20,9 @@ below into the GitHub Release notes.
     Filtration (auto mode)** / `GET/POST /settings?filter_temp=&filter_auto=`.
   - **Manual, out-of-band.** A new `filter` API v2 command runs the blower fan-only
     **independent of mode** — not cleared by OFF, additive over any heat airflow,
-    and safe (no heat path). Surfaced as a **Filtration** toggle on the dashboard.
+    and safe (no heat path). Surfaced as an **on-only Filtration button** on the
+    dashboard — like the temperature presets, a click activates it and it lights up
+    (turns blue) while active; **Stop** is the single control that turns it off.
     **Enabling** it is idle-only: while the heater is heating or the cooldown purge
     is running, turning filtration *on* is rejected (`heater_busy`, HTTP 409) and the
     dashboard button dims, so a status-page toggle can't disturb an active heat cycle.
