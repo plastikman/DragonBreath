@@ -5,6 +5,7 @@
 #include "pb_leds.h"
 #include "pb_policy.h"
 #include "pb_source.h"
+#include "pb_bambu.h"
 #include "pb_evlog.h"
 
 #include "esp_http_server.h"
@@ -155,7 +156,15 @@ static cJSON *state_json(const pb_policy_snapshot_t *s)
     // Active control source (klipper/bambu/ha). Read from NVS; since /setup reboots
     // on save, this matches the running source except for the sub-second window
     // between a save and the reboot. Lets the dashboard label the printer/source row.
-    cJSON_AddStringToObject(environment, "control_source", pb_source_str(pb_source_get()));
+    pb_ctl_source_t ctl_src = pb_source_get();
+    cJSON_AddStringToObject(environment, "control_source", pb_source_str(ctl_src));
+    // In Bambu mode, surface the configured serial so the dashboard can label the
+    // row "Bambu (<serial>)" — the LAN report carries no friendly printer name.
+    if (ctl_src == PB_SRC_BAMBU) {
+        pb_bambu_config_t bc;
+        if (pb_bambu_get_config(&bc) == ESP_OK && bc.serial[0])
+            cJSON_AddStringToObject(environment, "bambu_serial", bc.serial);
+    }
     cJSON_AddBoolToObject(environment, "moonraker_connected", s->moonraker_connected);
     add_num1(environment, "bed_temperature_c", s->bed_c);
     add_num1(environment, "bed_target_c", s->bed_target_c);

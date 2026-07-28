@@ -12,9 +12,12 @@ below into the GitHub Release notes.
 ### Changed
 - **Dashboard status is control-source-aware.** In Home Assistant mode the
   "Printer" row (which read a misleading "not connected", since HA has no printer
-  to follow) is relabeled **"Source: Home Assistant"**; Bambu mode labels it
-  "Bambu". Klipper mode is unchanged. The active source is exposed as
-  `environment.control_source` in the state API.
+  to follow) is relabeled **"Source: Home Assistant"**, and the **Controller** row
+  shows **"Home Assistant"** instead of the internal "Web UI (ha)". Bambu mode
+  labels the row **"Bambu (&lt;serial&gt;)"** (the LAN report carries no friendly
+  printer name, so the configured serial is used). Klipper mode is unchanged. The
+  active source is exposed as `environment.control_source`, and the Bambu serial as
+  `environment.bambu_serial`, in the state API.
 
 ## [0.8.0-rc2] - 2026-07-28
 
