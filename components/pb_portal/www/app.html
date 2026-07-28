@@ -80,6 +80,9 @@ body{
 .btn:not(.btn-primary).is-selected{
   border-color: var(--primary); color: var(--primary-foreground); background: var(--primary);
 }
+/* The active (pressed) choice is disabled — there's no reason to re-select it. Keep
+   it looking selected (solid blue, normal cursor) rather than faded "unavailable". */
+.btn:not(.btn-primary)[aria-pressed="true"]:disabled{ opacity: 1; cursor: default; }
 .form-range{
   appearance: none; display: block; width: 100%; height: 28px; flex: 1;
   margin: 0; padding: 0; border: 0; accent-color: var(--primary);
@@ -936,8 +939,9 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     var activeTemp = (s.mode==='power_on')
       ? Math.round(s.target.effective_c || s.target.requested_c || 0) : null;
     document.querySelectorAll('[data-quick-temp]').forEach(function(b){
-      b.setAttribute('aria-pressed',
-        String(Number(b.dataset.quickTemp) === activeTemp));
+      var active = Number(b.dataset.quickTemp) === activeTemp;
+      b.setAttribute('aria-pressed', String(active));
+      b.disabled = active;   // already at this target — no reason to re-click it
     });
 
     var st = displayState(s);
@@ -958,8 +962,11 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
       // On-only + lit when active (like the presets); dimmed while heating/cooling
       // since enabling is blocked then (Stop is the only off).
       fbtn.setAttribute('aria-pressed', filtOn?'true':'false');
-      fbtn.disabled = filtLocked;   // lit if active, but not clickable during a cycle
-      fbtn.title = filtLocked ? 'Filtration is locked while heating or cooling down — use Stop' : '';
+      // On-only: once active (blue) there's nothing to re-click — Stop turns it off.
+      // Also locked (dimmed) while heating/cooling, when enabling is blocked.
+      fbtn.disabled = filtOn || filtLocked;
+      fbtn.title = filtLocked ? 'Filtration is locked while heating or cooling down — use Stop'
+                 : filtOn ? 'Filtration on — use Stop to turn it off' : '';
     }
     u('db-filter-label', 'Filtration');
     var autoRow = s.mode==='auto';
