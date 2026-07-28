@@ -32,6 +32,16 @@ below into the GitHub Release notes.
     ladder `pb_heater_tick()` runs — and `pb_ntc_classify()` — the exact
     open/short/rail classifier `pb_ntc_read()` runs.
 
+### Fixed
+- **HIL dev-board builds were silently broken.** Both dev-board HIL profiles
+  failed to link (`undefined reference to pb_ntc_rref_kohm`) because that getter
+  lived only in the real-ADC branch of `pb_ntc.c`, but CI still reported success —
+  the HIL build step chained `idf.py` commands without `set -e`, so a failed link
+  was masked by the subsequent compile-out check. The HIL NTC backend now provides
+  a `pb_ntc_rref_kohm()` (nominal 82 kΩ; the HIL profile has no Rref strap), and the
+  HIL build step runs with `set -e` so a build failure fails CI. Pre-existing since
+  the Rref-strap work; surfaced by the PR #42 review.
+
 ## [0.6.5] - 2026-07-28
 
 ### Added

@@ -118,6 +118,7 @@ jobs:
           target: esp32c3
           path: '.'
           command: |
+            set -e   # a failed idf.py must fail the step, not be masked by the next command
             idf.py -B build-hil-devboard \
               -DSDKCONFIG="$PWD/build-hil-devboard/sdkconfig.profile" \
               -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.hil-devboard" \

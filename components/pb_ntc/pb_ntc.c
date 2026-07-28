@@ -163,6 +163,12 @@ float pb_ntc_smoothed_c(pb_ntc_channel_t ch)
     return temp_c;
 }
 
+// The dev-board HIL profile has no Rref strap (temperatures are injected, not
+// divider-derived). Report the nominal V1.0.1 reference so callers that read it
+// (e.g. the heater foldback per-Rref thresholds) link and get a sane value. This
+// also fixes an undefined-reference link error in the HIL build.
+int pb_ntc_rref_kohm(void) { return 82; }
+
 #else
 
 // Low-side NTC divider supply K in Rntc = Rref*V/(K-V) = the ~3.3 V rail.
