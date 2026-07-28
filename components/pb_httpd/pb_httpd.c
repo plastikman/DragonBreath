@@ -153,6 +153,7 @@ static cJSON *state_json(const pb_policy_snapshot_t *s)
     cJSON_AddBoolToObject(environment, "moonraker_connected", s->moonraker_connected);
     add_num1(environment, "bed_temperature_c", s->bed_c);
     cJSON_AddBoolToObject(environment, "auto_engaged", s->auto_engaged);
+    cJSON_AddBoolToObject(environment, "auto_filtering", s->auto_filtering);
     add_num1(environment, "auto_bed_threshold_c", s->auto_bed_threshold_c);
 
     cJSON *drying = cJSON_AddObjectToObject(o, "drying");
@@ -179,6 +180,8 @@ static cJSON *state_json(const pb_policy_snapshot_t *s)
     add_num1(pj, "auto_bed_threshold_c", s->params.auto_bed_threshold_c);
     add_num1(pj, "dry_target_c", s->params.dry_target_c);
     cJSON_AddNumberToObject(pj, "dry_hours", s->params.dry_hours);
+    add_num1(pj, "filter_temp_c", s->params.filter_temp_c);
+    cJSON_AddBoolToObject(pj, "filter_auto_enable", s->params.filter_auto_enable);
 
     cJSON *safety = cJSON_AddObjectToObject(o, "safety");
     cJSON_AddBoolToObject(safety, "fault_latched", s->fault_latched);
@@ -411,7 +414,8 @@ static esp_err_t command_post(httpd_req_t *req)
 
     const char *cmd = name->valuestring;
     bool cacheable = strcmp(cmd, "off") != 0
-        && strcmp(cmd, "drying_stop") != 0;
+        && strcmp(cmd, "drying_stop") != 0
+        && strcmp(cmd, "filter") != 0;
     replay_entry_t *prior = cacheable
         ? replay_find(actor_id_buf, request_id) : NULL;
     if (prior) {
@@ -436,11 +440,17 @@ static esp_err_t command_post(httpd_req_t *req)
         revision = (uint32_t)expected->valuedouble;
 
     pb_policy_result_t result = PB_POLICY_INVALID;
-    double target = 0.0, threshold = 0.0, hours = 0.0;
+    double target = 0.0, threshold = 0.0, hours = 0.0, fan_percent = 0.0;
     pb_policy_lease_t issued_lease = {0};
     if (strcmp(cmd, "off") == 0) {
         pb_policy_set_mode_off(source);
         result = PB_POLICY_OK; // revision intentionally ignored for safer action
+    } else if (strcmp(cmd, "filter") == 0
+            && json_number(command, "percent", &fan_percent)) {
+        // Fan-only filtration: safe (no heat), idempotent, revision-independent.
+        if (fan_percent < 0.0) fan_percent = 0.0;
+        if (fan_percent > 100.0) fan_percent = 100.0;
+        result = pb_policy_set_fan((uint8_t)(fan_percent + 0.5), source);
     } else if (!revision_valid) {
         result = PB_POLICY_INVALID;
     } else if (strcmp(cmd, "power_on") == 0
@@ -630,12 +640,14 @@ static esp_err_t settings_send(httpd_req_t *req)
     // Board's per-Rref foldback-cut default (shown as the slider's "auto" value).
     float fbdef_cut, fbdef_resume;
     pb_heater_foldback_thresholds(pb_ntc_rref_kohm(), &fbdef_cut, &fbdef_resume);
-    char buf[480];
+    char buf[600];
     int n = snprintf(buf, sizeof buf,
         "{\"max\":%.1f,\"max_min\":%.1f,\"max_abs\":%.1f,"
         "\"comms_ms\":%u,\"comms_ms_min\":%u,\"comms_ms_max\":%u,"
         "\"cool_release\":%.1f,\"cool_release_min\":%.1f,\"cool_release_max\":%.1f,"
         "\"fb_cut\":%.1f,\"fb_cut_default\":%.1f,\"fb_cut_min\":%.1f,\"fb_cut_max\":%.1f,"
+        "\"filter_temp\":%.1f,\"filter_temp_min\":%.1f,\"filter_temp_max\":%.1f,"
+        "\"filter_auto\":%s,"
         "\"leds_enabled\":%s}",
         (double)pb_heater_get_max_target_c(),
         (double)PB_HEATER_MIN_TARGET_C,
@@ -650,6 +662,10 @@ static esp_err_t settings_send(httpd_req_t *req)
         (double)fbdef_cut,
         (double)PB_HEATER_FB_CUT_MIN_C,
         (double)PB_HEATER_FB_CUT_MAX_C,
+        (double)pb_policy_get_filter_temp_c(),
+        (double)PB_POLICY_FILTER_TEMP_MIN_C,
+        (double)PB_POLICY_FILTER_TEMP_MAX_C,
+        pb_policy_get_filter_auto_enable() ? "true" : "false",
         pb_leds_get_enabled() ? "true" : "false");
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, buf, n);
@@ -733,6 +749,26 @@ static esp_err_t settings_post(httpd_req_t *req)
         pb_heater_set_fb_cut_c(c);   // 0 clears override -> auto; else clamps [90,104] + persists
         applied = true;
     }
+    // AUTO fan-only filtration band. filter_temp and filter_auto may arrive
+    // together or singly; keep the unspecified half at its current value and apply
+    // both through the one policy setter (which range-checks + persists).
+    {
+        char v2[24];
+        bool have_ft = httpd_query_key_value(q, "filter_temp", v, sizeof v) == ESP_OK;
+        bool have_fa = httpd_query_key_value(q, "filter_auto", v2, sizeof v2) == ESP_OK;
+        if (have_ft || have_fa) {
+            float ft = pb_policy_get_filter_temp_c();
+            bool fa = pb_policy_get_filter_auto_enable();
+            if (have_ft && !parse_temp(v, &ft)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad filter_temp"); return ESP_FAIL; }
+            if (have_fa) {
+                uint32_t on;
+                if (!parse_u32(v2, &on)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad filter_auto"); return ESP_FAIL; }
+                fa = on != 0;
+            }
+            if (pb_policy_set_filter_config(ft, fa) != PB_POLICY_OK) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "filter_temp out of range"); return ESP_FAIL; }
+            applied = true;
+        }
+    }
     if (httpd_query_key_value(q, "leds_enabled", v, sizeof v) == ESP_OK) {
         uint32_t on;
         if (!parse_u32(v, &on)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad leds_enabled"); return ESP_FAIL; }
@@ -742,7 +778,7 @@ static esp_err_t settings_post(httpd_req_t *req)
         applied = true;
     }
     if (!applied) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "no known settings (max, comms_ms, cool_release, fb_cut, leds_enabled)");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "no known settings (max, comms_ms, cool_release, fb_cut, filter_temp, filter_auto, leds_enabled)");
         return ESP_FAIL;
     }
     return settings_send(req);   // echo the clamped result

@@ -454,6 +454,11 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
             <button class="btn" type="button" data-quick-temp="60"><svg class="icon"><use href="#i-thermometer"/></svg> 60 °C</button>
             <button class="btn" type="button" data-quick-temp="70"><svg class="icon"><use href="#i-thermometer"/></svg> 70 °C</button>
           </div>
+          <!-- Manual filtration blower: fan-only, out-of-band (works in any mode,
+               heater untouched). Mirrors the Klipper fan_generic control. -->
+          <div class="quick-actions">
+            <button class="btn" type="button" id="db-filter" aria-pressed="false"><svg class="icon"><use href="#i-wind"/></svg> <span id="db-filter-label">Filtration</span></button>
+          </div>
         </section>
       </div>
 
@@ -641,6 +646,26 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
           <p class="set-note">The soft over-temp foldback holds the heater element just below this by cutting power, so it can't ratchet into the fixed 105&nbsp;°C cutoff. <strong id="s-fb-default">Board default is auto</strong> — lower it if your element runs hot/slow, raise it (up to 104) for more chamber temperature. The fixed 105&nbsp;°C hardware cutoff is unaffected. Turn <strong>Auto</strong> off to set a manual value, or back on to use the board default.</p>
           <button class="btn btn-primary btn-block" type="button" id="s-fb-save"><svg class="icon"><use href="#i-thermometer"/></svg> <span>Save foldback</span></button>
           <div class="mode-feedback" id="s-fb-msg" role="status" aria-live="polite"></div>
+        </div>
+
+        <!-- Auto-mode fan-only filtration band (GET/POST /settings?filter_temp=&filter_auto=). -->
+        <div class="set-card">
+          <h3>Filtration (auto mode)</h3>
+          <div class="ctl-group">
+            <div class="ctl-head">
+              <span class="form-label">Filter at bed temperature</span>
+              <button class="btn btn-sm" type="button" id="s-filt-en" aria-pressed="true"><span>On</span></button>
+            </div>
+            <div class="touch-adjust">
+              <button class="btn step-btn" type="button" data-sstep="filt,-1" aria-label="Decrease filtration bed temperature"><svg class="icon"><use href="#i-minus"/></svg></button>
+              <output class="touch-value" id="s-filt-value">30 <span>°C</span></output>
+              <button class="btn step-btn" type="button" data-sstep="filt,1" aria-label="Increase filtration bed temperature"><svg class="icon"><use href="#i-plus"/></svg></button>
+            </div>
+            <input class="form-range" id="s-filt-range" type="range" min="20" max="60" step="1" value="30" aria-label="Filtration bed temperature">
+          </div>
+          <p class="set-note">In <strong>Auto</strong> mode, the blower runs on its own once the printer bed reaches this temperature — filtering/circulating chamber air before the heater engages at the (higher) auto bed threshold. Fan-only: it never adds heat. Turn <strong>Off</strong> to disable the band. For on-demand filtration in any mode, use the <strong>Filtration</strong> button on the dashboard (or the <code>dragonbreath_filter</code> fan in Fluidd).</p>
+          <button class="btn btn-primary btn-block" type="button" id="s-filt-save"><svg class="icon"><use href="#i-wind"/></svg> <span>Save filtration</span></button>
+          <div class="mode-feedback" id="s-filt-msg" role="status" aria-live="polite"></div>
         </div>
 
         <!-- Sensor calibration (GET/POST /api/v2/calibration). Per-channel offset,
@@ -901,10 +926,16 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     /* At-a-glance detail rows — all from the SSE snapshot. */
     u('db-fan', fanLabel(s));
     u('db-controller', controllerLabel(s));
+    /* Manual filtration blower toggle reflects requested (not effective) fan. */
+    var filtOn = !!(s.fan && s.fan.requested_percent>0);
+    var fbtn=$('db-filter'); if(fbtn) fbtn.setAttribute('aria-pressed', filtOn?'true':'false');
+    u('db-filter-label', filtOn ? 'Filtration: on' : 'Filtration');
     var autoRow = s.mode==='auto';
     $('db-auto-row').hidden = !autoRow;
-    if(autoRow) u('db-auto', (s.environment.auto_engaged?'engaged':'waiting')
-      +' @ bed ≥'+Math.round(s.environment.auto_bed_threshold_c)+' °C');
+    if(autoRow) u('db-auto', s.environment.auto_engaged
+      ? 'heating @ bed ≥'+Math.round(s.environment.auto_bed_threshold_c)+' °C'
+      : s.environment.auto_filtering ? 'filtering (fan only)'
+      : 'waiting @ bed ≥'+Math.round(s.environment.auto_bed_threshold_c)+' °C');
     var dryRow = s.drying.active;
     $('db-drying-row').hidden = !dryRow;
     if(dryRow) u('db-drying', fmtDur(s.drying.remaining_seconds)+' left');
@@ -1009,6 +1040,14 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
      status area is Stop-only). */
   $('db-stop').addEventListener('click', setOff);
   $('db-clear').addEventListener('click', function(){ command('clear_fault', {}).catch(function(){}); });
+
+  /* Manual filtration blower toggle -> command('filter', {percent}). Fan-only,
+     out-of-band (heater untouched), so it works in any mode. Optimistic UI; the
+     next state snapshot is authoritative. */
+  if($('db-filter')) $('db-filter').addEventListener('click', function(){
+    var on = $('db-filter').getAttribute('aria-pressed')!=='true';
+    command('filter', {percent: on?100:0}).catch(function(){});
+  });
 
   /* ===== U2: Manual / Automatic / Dry control screens =========================
      Client edit-state for the touch steppers/sliders. Each field re-syncs from the
@@ -1149,7 +1188,8 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     max:   { val:70,  min:30, max:70,  vId:'s-max-value',   rId:'s-max-range',   hId:'s-max-hint',   unit:'°C' },
     comms: { val:300, min:10, max:300, vId:'s-comms-value', rId:'s-comms-range', hId:'s-comms-hint', unit:'s'  },
     cool:  { val:40,  min:30, max:65,  vId:'s-cool-value',  rId:'s-cool-range',  hId:'s-cool-hint',  unit:'°C' },
-    fb:    { val:99,  min:90, max:104, vId:'s-fb-value',    rId:'s-fb-range',    hId:'s-fb-hint',    unit:'°C' }
+    fb:    { val:99,  min:90, max:104, vId:'s-fb-value',    rId:'s-fb-range',    hId:'s-fb-hint',    unit:'°C' },
+    filt:  { val:30,  min:20, max:60,  vId:'s-filt-value',  rId:'s-filt-range',  hId:'s-filt-hint',  unit:'°C' }
   };
   var fbDefault = 99;   // board's per-Rref foldback-cut default (from /settings); slider at this = auto
   function renderSset(k){
@@ -1187,13 +1227,18 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
       var fbManual = isFinite(s.fb_cut) && s.fb_cut>0;
       setSset('fb', fbManual ? s.fb_cut : fbDefault);
       setFbAuto(!fbManual);
+      // Auto-mode filtration band.
+      if(isFinite(s.filter_temp_min)) sset.filt.min = Math.round(s.filter_temp_min);
+      if(isFinite(s.filter_temp_max)) sset.filt.max = Math.round(s.filter_temp_max);
+      if(isFinite(s.filter_temp)) setSset('filt', s.filter_temp);
+      if(typeof s.filter_auto==='boolean') setFiltEn(s.filter_auto);
       if(typeof s.leds_enabled==='boolean') setLedToggle(s.leds_enabled);
     }).catch(function(){});
   }
   document.querySelectorAll('[data-sstep]').forEach(function(b){
     b.addEventListener('click', function(){ var p=b.dataset.sstep.split(','); setSset(p[0], sset[p[0]].val+Number(p[1])); });
   });
-  [['max','s-max-range'],['comms','s-comms-range'],['cool','s-cool-range'],['fb','s-fb-range']].forEach(function(p){
+  [['max','s-max-range'],['comms','s-comms-range'],['cool','s-cool-range'],['fb','s-fb-range'],['filt','s-filt-range']].forEach(function(p){
     var r=$(p[1]); if(r) r.addEventListener('input', function(){ setSset(p[0], Number(r.value)); });
   });
   /* Foldback Auto toggle: Auto disables the slider/steppers and uses the board default
@@ -1244,6 +1289,29 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
         flash('s-fb-msg', post ? ('Saved — cut at '+post+' °C.') : 'Saved — auto (board default).', 'is-ok');
       })
       .catch(function(j){ flash('s-fb-msg', 'Save failed: '+((j&&(j.message||j.error))||'error'), 'is-error'); });
+  });
+  /* Auto-mode filtration band enable toggle (On/Off). Disables the threshold
+     controls when off; the band only runs in AUTO regardless. */
+  function setFiltEn(on){
+    var b=$('s-filt-en');
+    if(b){ b.setAttribute('aria-pressed', on?'true':'false'); b.querySelector('span').textContent = on?'On':'Off'; }
+    var r=$('s-filt-range'); if(r) r.disabled = !on;
+    document.querySelectorAll('[data-sstep^="filt,"]').forEach(function(x){ x.disabled = !on; });
+  }
+  if($('s-filt-en')) $('s-filt-en').addEventListener('click', function(){
+    setFiltEn($('s-filt-en').getAttribute('aria-pressed')!=='true');
+  });
+  /* Filtration band -> POST /settings?filter_temp=&filter_auto=. */
+  $('s-filt-save').addEventListener('click', function(){
+    flash('s-filt-msg', 'Saving…');
+    var en = $('s-filt-en').getAttribute('aria-pressed')==='true';
+    request('/settings?filter_temp='+sset.filt.val+'&filter_auto='+(en?1:0), {})
+      .then(function(s){
+        if(s){ if(isFinite(s.filter_temp)) setSset('filt', s.filter_temp);
+          if(typeof s.filter_auto==='boolean') setFiltEn(s.filter_auto); }
+        flash('s-filt-msg', en ? ('Saved — blower at bed ≥ '+sset.filt.val+' °C.') : 'Saved — band off.', 'is-ok');
+      })
+      .catch(function(j){ flash('s-filt-msg', 'Save failed: '+((j&&(j.message||j.error))||'error'), 'is-error'); });
   });
 
   /* ===== U4: Sensor calibration (GET/POST /api/v2/calibration) ================

@@ -41,15 +41,22 @@ static const char *TAG = "pb_policy";
 #define PB_NVS_KEY_AUTO_BED         "md_auto_bed"
 #define PB_NVS_KEY_DRY_TGT          "md_dry_tgt"
 #define PB_NVS_KEY_DRY_HRS          "md_dry_hrs"
+#define PB_NVS_KEY_FILT_TMP         "md_filt_tmp"
+#define PB_NVS_KEY_FILT_EN          "md_filt_en"
 
 #define PB_AUTO_BED_MIN_C           40.0f
 #define PB_AUTO_BED_MAX_C          120.0f
 
+// AUTO fan-only filtration band bounds live in pb_policy.h (shared with the HTTP
+// settings JSON). Stock default is 30 C; the range sits below the AUTO heat-engage
+// threshold (min 40 C) so the band never demands heat.
 #define PB_DEFAULT_MANUAL_TARGET_C  50.0f
 #define PB_DEFAULT_AUTO_TARGET_C    60.0f
 #define PB_DEFAULT_AUTO_BED_C      100.0f
 #define PB_DEFAULT_DRY_TARGET_C     60.0f
 #define PB_DEFAULT_DRY_HOURS        12U
+#define PB_DEFAULT_FILTER_TEMP_C    30.0f
+#define PB_DEFAULT_FILTER_AUTO_EN   true
 
 typedef struct {
     pb_mode_t mode;
@@ -63,6 +70,7 @@ typedef struct {
     float bed_c;
     float auto_bed_threshold_c;
     bool auto_engaged;
+    bool auto_filtering;         // AUTO fan-only band latch (blower on, no heat)
 
     int64_t drying_deadline_us;
     int64_t local_power_deadline_us;
@@ -218,6 +226,9 @@ static void params_clamp(pb_policy_params_t *p)
         max_target_c, PB_DEFAULT_DRY_TARGET_C);
     if (p->dry_hours == 0 || p->dry_hours > PB_DRYING_MAX_HOURS)
         p->dry_hours = PB_DEFAULT_DRY_HOURS;
+    p->filter_temp_c = clamp_or_default(
+        p->filter_temp_c, PB_POLICY_FILTER_TEMP_MIN_C,
+        PB_POLICY_FILTER_TEMP_MAX_C, PB_DEFAULT_FILTER_TEMP_C);
 }
 
 static void params_defaults_locked(void)
@@ -227,6 +238,8 @@ static void params_defaults_locked(void)
     s.params.auto_bed_threshold_c = PB_DEFAULT_AUTO_BED_C;
     s.params.dry_target_c         = PB_DEFAULT_DRY_TARGET_C;
     s.params.dry_hours            = PB_DEFAULT_DRY_HOURS;
+    s.params.filter_temp_c        = PB_DEFAULT_FILTER_TEMP_C;
+    s.params.filter_auto_enable   = PB_DEFAULT_FILTER_AUTO_EN;
 }
 
 // Wake the persistence worker. Call AFTER releasing s_lock: NVS writes must
@@ -252,6 +265,10 @@ static esp_err_t persist_params(const pb_policy_params_t *p)
         { PB_NVS_KEY_DRY_TGT,  c_to_centi(p->dry_target_c),
                                c_to_centi(s_written.dry_target_c) },
         { PB_NVS_KEY_DRY_HRS,  p->dry_hours, s_written.dry_hours },
+        { PB_NVS_KEY_FILT_TMP, c_to_centi(p->filter_temp_c),
+                               c_to_centi(s_written.filter_temp_c) },
+        { PB_NVS_KEY_FILT_EN,  p->filter_auto_enable ? 1u : 0u,
+                               s_written.filter_auto_enable ? 1u : 0u },
     };
     const size_t n = sizeof kv / sizeof kv[0];
 
@@ -334,6 +351,10 @@ void pb_policy_load_params(void)
             p.dry_target_c = centi_to_c(v);
         if (nvs_get_u32(h, PB_NVS_KEY_DRY_HRS, &v) == ESP_OK)
             p.dry_hours = v > UINT8_MAX ? UINT8_MAX : (uint8_t)v;
+        if (nvs_get_u32(h, PB_NVS_KEY_FILT_TMP, &v) == ESP_OK)
+            p.filter_temp_c = centi_to_c(v);
+        if (nvs_get_u32(h, PB_NVS_KEY_FILT_EN, &v) == ESP_OK)
+            p.filter_auto_enable = (v != 0);
         nvs_close(h);
     }
     params_clamp(&p);
@@ -465,6 +486,7 @@ pb_policy_result_t pb_policy_set_auto(
         target_c > max_target_c ? max_target_c : target_c;
     s.auto_bed_threshold_c = bed_threshold_c;
     s.auto_engaged = false;
+    s.auto_filtering = false;
     s.drying_deadline_us = 0;
     s.local_power_deadline_us = 0;
     (void)pb_heater_set_target_c(0.0f);
@@ -524,6 +546,60 @@ void pb_policy_set_mode_off(pb_source_t source)
     set_off_locked(source);
     xSemaphoreGive(s_lock);
     wake_control_task();
+}
+
+// Manual filtration blower — run the chamber blower fan-only, heater untouched.
+// This is deliberately INDEPENDENT of the heat mode: it is not cleared by OFF and
+// does not change s.mode, so it can filter/purge air "out of band" while OFF, or
+// add airflow on top of any heat mode (whichever wants more air wins in the tick).
+// Fan-only has no heat path, so it is safe even while faulted (extra cooling) and
+// needs no revision gate. It never persists: the device always boots OFF, fan 0.
+pb_policy_result_t pb_policy_set_fan(uint8_t percent, pb_source_t source)
+{
+    if (!s_lock) return PB_POLICY_INVALID;
+    if (percent > 100) percent = 100;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s.requested_fan_percent != percent) {
+        s.requested_fan_percent = percent;
+        revision_advance_locked(source);
+    }
+    xSemaphoreGive(s_lock);
+    wake_control_task();
+    return PB_POLICY_OK;
+}
+
+pb_policy_result_t pb_policy_set_filter_config(float filter_temp_c, bool enable)
+{
+    if (!s_lock || !isfinite(filter_temp_c)
+            || filter_temp_c < PB_POLICY_FILTER_TEMP_MIN_C
+            || filter_temp_c > PB_POLICY_FILTER_TEMP_MAX_C)
+        return PB_POLICY_INVALID;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s.params.filter_temp_c = filter_temp_c;
+    s.params.filter_auto_enable = enable;
+    s.params_dirty = true;
+    xSemaphoreGive(s_lock);
+    params_notify();
+    wake_control_task();      // re-evaluate the AUTO band on the next tick
+    return PB_POLICY_OK;
+}
+
+float pb_policy_get_filter_temp_c(void)
+{
+    if (!s_lock) return PB_DEFAULT_FILTER_TEMP_C;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    float v = s.params.filter_temp_c;
+    xSemaphoreGive(s_lock);
+    return v;
+}
+
+bool pb_policy_get_filter_auto_enable(void)
+{
+    if (!s_lock) return PB_DEFAULT_FILTER_AUTO_EN;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    bool v = s.params.filter_auto_enable;
+    xSemaphoreGive(s_lock);
+    return v;
 }
 
 void pb_policy_stop_drying(pb_source_t source)
@@ -792,7 +868,21 @@ void pb_policy_tick(void)
                                       - PB_AUTO_BED_HYSTERESIS_C) {
                 s.auto_engaged = false;
             }
-            if (s.auto_engaged != was_engaged)
+            // Fan-only filtration band (stock-like): once the bed reaches
+            // filter_temp_c the blower runs ALONE — before the heater engages at
+            // the higher auto bed threshold. Same hysteresis shape as engage;
+            // gated off if disabled or Moonraker is down (fail to no-airflow).
+            bool was_filtering = s.auto_filtering;
+            if (!s.mk_connected || !s.params.filter_auto_enable) {
+                s.auto_filtering = false;
+            } else if (!s.auto_filtering && s.bed_c >= s.params.filter_temp_c) {
+                s.auto_filtering = true;
+            } else if (s.auto_filtering
+                       && s.bed_c < s.params.filter_temp_c
+                                      - PB_AUTO_BED_HYSTERESIS_C) {
+                s.auto_filtering = false;
+            }
+            if (s.auto_engaged != was_engaged || s.auto_filtering != was_filtering)
                 revision_advance_locked(s.source);
             if (s.auto_engaged) {
                 target = s.requested_target_c;
@@ -867,7 +957,12 @@ void pb_policy_tick(void)
     }
     s.last_faulted = faulted;
 
-    bool want_airflow = heat || faulted || cooldown;
+    // AUTO fan-only filtration band forces airflow with no heat. Mode-gated so a
+    // stale latch never spins the fan outside AUTO. The manual filtration fan
+    // (requested_fan_percent) is independent and additive — whichever wants more
+    // air wins, since want_airflow only raises a low request up to the 30% floor.
+    bool auto_filter = (s.mode == PB_MODE_AUTO) && s.auto_filtering;
+    bool want_airflow = heat || faulted || cooldown || auto_filter;
     uint8_t fan = s.requested_fan_percent;
     if (want_airflow && fan < 30) fan = 30;
     pb_fan_set_level(fan);
@@ -909,6 +1004,7 @@ void pb_policy_get_snapshot(pb_policy_snapshot_t *out)
     out->moonraker_connected = s.mk_connected;
     out->bed_c = s.bed_c;
     out->auto_engaged = s.auto_engaged;
+    out->auto_filtering = (s.mode == PB_MODE_AUTO) && s.auto_filtering;
     out->auto_bed_threshold_c = s.auto_bed_threshold_c;
     out->params = s.params;
     out->drying = s.mode == PB_MODE_DRYING;
