@@ -975,7 +975,9 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     pushTemp(c.status==='ok' ? c.temperature_c : null, p.status==='ok' ? p.temperature_c : null);
 
     /* Stop enabled only while a mode is running. */
-    $('db-stop').disabled = s.mode==='off';
+    // Stop is available whenever a mode is running OR manual filtration is on
+    // (filtration keeps mode 'off', but Stop must still be able to stop it).
+    $('db-stop').disabled = (s.mode==='off') && !filtOn;
     /* Clear-fault affordance appears only while a fault is latched. */
     $('db-clear').hidden = !s.safety.fault_latched;
 
@@ -1013,7 +1015,13 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     lease=null;
     command('power_on', {target_c:t}).then(function(r){ lease=r.lease_id||null; }).catch(function(){ lease=null; });
   }
-  function setOff(){ lease=null; command('off', {}).catch(function(){}); }
+  function setOff(){
+    lease=null;
+    command('off', {}).catch(function(){});
+    // Stop = stop all: also clear any manual filtration (turning OFF is always
+    // allowed, even mid-cycle) so it can't linger or "come back" after heating.
+    command('filter', {percent:0}).catch(function(){});
+  }
 
   /* Heartbeat only the exact POWER_ON lease this tab created (never a passive one). */
   function heartbeat(){

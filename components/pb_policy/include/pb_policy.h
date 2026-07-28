@@ -155,8 +155,10 @@ void pb_policy_stop_drying(pb_source_t source);
 // hardware fan is on/off, so any non-zero runs it). Heater is untouched.
 // Independent of mode — not cleared by OFF, additive over any heat airflow — and
 // safe (no heat path), so it is accepted regardless of revision. Cleared on reboot.
-// IDLE-ONLY: returns PB_POLICY_BUSY (no change) while the heater is heating or the
-// cooldown purge is running, so a manual toggle can't disturb the heat cycle.
+// ENABLE is idle-only: turning it ON (percent > 0) returns PB_POLICY_BUSY while the
+// heater is heating or the cooldown purge is running, so a manual toggle can't
+// disturb the heat cycle. Turning it OFF (percent == 0) is always allowed, so
+// "Stop" can clear a lingering filtration request mid-cycle.
 pb_policy_result_t pb_policy_set_fan(uint8_t percent, pb_source_t source);
 
 // AUTO fan-only filtration band (persisted): when enabled, AUTO runs the blower

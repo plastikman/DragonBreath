@@ -21,10 +21,12 @@ below into the GitHub Release notes.
   - **Manual, out-of-band.** A new `filter` API v2 command runs the blower fan-only
     **independent of mode** — not cleared by OFF, additive over any heat airflow,
     and safe (no heat path). Surfaced as a **Filtration** toggle on the dashboard.
-    It is **idle-only**: while the heater is heating or the cooldown purge is running
-    the blower is owned by the safety-airflow logic, so manual changes are rejected
-    (`heater_busy`, HTTP 409) and the dashboard button dims — a status-page toggle
-    can't disturb an active heat cycle.
+    **Enabling** it is idle-only: while the heater is heating or the cooldown purge
+    is running, turning filtration *on* is rejected (`heater_busy`, HTTP 409) and the
+    dashboard button dims, so a status-page toggle can't disturb an active heat cycle.
+    Turning it *off* is always allowed, and **Stop stops all** — the dashboard Stop
+    button clears filtration alongside the heater (and is clickable whenever
+    filtration is on), so filtration never lingers or "comes back" after a heat cycle.
   - State adds `environment.auto_filtering` and `params.filter_temp_c` /
     `params.filter_auto_enable`; the manual fan drives the existing (previously
     unused) `requested_fan_percent` blower path. The heater and every over-temp
