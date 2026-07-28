@@ -22,7 +22,14 @@ guarantee** — no firmware can promise the absence of every fault.
 
 ## Layer 3 (this firmware) — soft cutoffs
 `pb_heater` enforces, every control tick, before any heat request:
-- **PTC element over-temp** → force off at 105 °C (stock parity).
+- **PTC element over-temp** → force off at 105 °C (stock parity). Always the first,
+  unconditional, latching check.
+- **Element foldback limiter** → below the 105 °C cutoff, the SSR is cut with
+  hysteresis at a per-Rref point and held off until the element cools to a resume
+  point, so a hot/slow element holds *under* the hard cutoff instead of ratcheting
+  into it. Cut point is per-board (82 kΩ → 102 °C / 33 kΩ → 99 °C) or a user
+  override `fb_cut` (90–104 °C). It can **only remove power**, can never exceed
+  104 °C, and does not touch the fixed 105 °C hardware cutoff.
 - **Chamber over-temp** → force off at 85 °C.
 - **Sensor fault while heating** (open/short) → fail-closed.
 - **Comms-loss watchdog** → if no controller link for 5 min while heating, latch
@@ -106,11 +113,21 @@ transient init failure must not brick the device across reboots).
 
 ## Residual-heat purge (session-gated, hysteresis)
 After heat has run **this session**, the cooldown fan keeps running while the
-chamber **or** PTC sensor is hot, engaging at ≥ 40 °C and releasing only once
-**both** are below 37 °C (an unknown/faulted sensor keeps the fan on). It is
-strictly session-gated: the fan **never** starts on temperature alone, and
-because that gate is RAM-only, a **power-cycle-while-hot does not spin the fan**.
-A fault forces airflow ON unconditionally, independent of this purge.
+chamber **or** PTC sensor is hot. The release temperature is the user-configurable
+`cool_release` (30–65 °C, default 40 °C); the fan engages one 3 °C hysteresis band
+above it and releases only once **both** sensors are below `cool_release` (an
+unknown/faulted sensor keeps the fan on). It is strictly session-gated: the fan
+**never** starts on temperature alone, and because that gate is RAM-only, a
+**power-cycle-while-hot does not spin the fan**. A fault forces airflow ON
+unconditionally, independent of this purge.
+
+## Fan-only filtration is heater-independent and idle-only to enable
+The manual filtration blower (`filter` command) and the AUTO fan-only filtration
+band drive **only the blower** — they never engage the heater/SSR. Enabling manual
+filtration is **idle-only**: turning it on while the heater is heating or the
+cooldown purge is running is rejected (`heater_busy`, HTTP 409) so a status-page
+toggle can't disturb an active heat cycle; turning it *off* is always allowed. The
+AUTO band fails to no-airflow if disabled or if Moonraker disconnects.
 
 ## What is NOT protected
 - **Over-current** is only the 6.3 A mains fuse. There is no PCB over-temp cutoff.

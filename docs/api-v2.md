@@ -9,8 +9,9 @@ routes require `X-DragonBreath-Auth`; the device does not enable CORS.
 
 ## Read-only routes
 
-- `GET /api/v2/info` — API version, stable device ID, per-boot ID, firmware and
-  capabilities.
+- `GET /api/v2/info` — API version, stable device ID, per-boot ID, firmware,
+  capabilities, and `rref_kohm` (the resolved thermistor reference resistor — 82 on
+  V1.0.1, 33 on V1.0 — read once at boot from the strap).
 - `GET /api/v2/state` — full authoritative snapshot. Reading never refreshes a
   lease or otherwise changes device state.
 - `GET /api/v2/events` — Server-Sent Events. A `state` event is sent on connect
@@ -56,6 +57,7 @@ The complete snapshot, not locally remembered intent, is the source of truth:
     "moonraker_connected": true,
     "bed_temperature_c": 100.0,
     "auto_engaged": false,
+    "auto_filtering": false,
     "auto_bed_threshold_c": 0.0
   },
   "drying": {"active": false, "remaining_seconds": 0},
@@ -64,7 +66,9 @@ The complete snapshot, not locally remembered intent, is the source of truth:
     "auto_target_c": 60.0,
     "auto_bed_threshold_c": 100.0,
     "dry_target_c": 60.0,
-    "dry_hours": 12
+    "dry_hours": 12,
+    "filter_temp_c": 30.0,
+    "filter_auto_enable": true
   },
   "control": {
     "lease": {
@@ -87,6 +91,12 @@ authenticated response that creates a POWER_ON lease returns it.
 `state_revision` changes only for control, mode, lease, fault, and safety
 transitions; ordinary temperature samples and successful heartbeats do not
 increment it.
+
+`fan.reason` is one of: `off`, `heater` (airflow while heating), `thermal_purge`
+(residual-heat cooldown purge), `auto_filter` (the AUTO fan-only filtration band),
+`requested` (the manual filtration fan), or `fault` (safety airflow).
+`environment.auto_filtering` is `true` while the AUTO fan-only band is driving the
+blower (bed at/above `filter_temp_c`, below the heat-engage threshold).
 
 `params` reports the *remembered* mode parameters — the values most recently
 accepted for each mode, used to pre-fill the UI and to re-arm a mode when the
@@ -121,6 +131,11 @@ Supported commands:
   the observed Moonraker bed state.
 - `{"name":"drying_start","target_c":50,"hours":4}` — bounded to 1–12 hours.
 - `{"name":"drying_stop"}` — unconditional safer stop.
+- `{"name":"filter","percent":100}` — manual fan-only filtration blower (0 = off,
+  1–100 = on; the blower is on/off, so any non-zero runs it). Heater untouched;
+  independent of mode and revision-independent. **Enable is idle-only**: turning it
+  *on* while the heater is heating or the cooldown purge is running is rejected with
+  `heater_busy` (HTTP 409); turning it *off* is always allowed.
 - `{"name":"clear_fault"}` — clears a recoverable fault only at the expected
   revision. Permanent inhibits require correcting the condition and rebooting.
 
@@ -175,11 +190,17 @@ Defined error codes include `invalid_command`, `unsupported_api_version`,
 
 These predate/sit beside the versioned control surface and are stable:
 
-- `GET /settings` — the runtime-configurable safety settings plus their bounds:
-  `{"max","max_min","max_abs","comms_ms","comms_ms_min","comms_ms_max","leds_enabled"}`.
-  Open (read-only, no side effects). `leds_enabled` is the status-LED master
-  enable (bool, default `true`).
-- `POST /settings?max=<°C>&comms_ms=<ms>&leds_enabled=<0|1>` — update any subset.
+- `GET /settings` — the runtime-configurable settings plus their bounds:
+  `{"max","max_min","max_abs","comms_ms","comms_ms_min","comms_ms_max",`
+  `"cool_release","cool_release_min","cool_release_max",`
+  `"fb_cut","fb_cut_default","fb_cut_min","fb_cut_max",`
+  `"filter_temp","filter_temp_min","filter_temp_max","filter_auto","leds_enabled"}`.
+  Open (read-only, no side effects). `cool_release` is the cooldown-fan "cool down
+  to" temperature (30–65 °C, default 40). `fb_cut` is the element-foldback cut
+  (90–104 °C; `0` = auto → the per-Rref `fb_cut_default`). `filter_temp` (20–60 °C,
+  default 30) + `filter_auto` (bool) drive the AUTO fan-only filtration band.
+  `leds_enabled` is the status-LED master enable (bool, default `true`).
+- `POST /settings?max=<°C>&comms_ms=<ms>&cool_release=<°C>&fb_cut=<°C>&filter_temp=<°C>&filter_auto=<0|1>&leds_enabled=<0|1>` — update any subset.
   Auth-gated (`X-DragonBreath-Auth`). Safety values are clamped to the safe
   envelope server-side (the max-target ceiling can never exceed the absolute cap,
   the comms watchdog stays within its min/max) and the clamped effective values

@@ -38,8 +38,10 @@ OEM parity → [`docs/OEM_PARITY.md`](docs/OEM_PARITY.md) · hardware →
 | Status LEDs (`pb_leds`) | ✅ All four driven from policy: Power = device-alive/fault, On/Auto/Dry = active mode (Auto slow-blinks when armed but waiting). |
 | Front-panel buttons (`pb_buttons`) | ✅ All four polled with debounce + short/long-press; short toggles the labeled mode, 2 s long-press = panic-off (Power-long while faulted = fault clear). Real-Panda + devboard-HIL benches passed. |
 | HTTP control API (`pb_httpd`) | ✅ API v2 (JSON command/state + SSE, CSRF-gated) — shipped in v0.3.0 |
-| Klipper-side helper (M141 / Fluidd) | ✅ [dragonbreath-klipper](https://github.com/plastikman/dragonbreath-klipper) migrated to API v2; deploy lockstep with firmware ≥ v0.3.0 |
-| Auto (follow-bed) / filament-dry modes | 🚧 Shipped in the state machine + UI (v0.3.0); end-to-end hardware soak in progress |
+| Klipper-side helper (M141 / Fluidd) | ✅ [dragonbreath-klipper](https://github.com/plastikman/dragonbreath-klipper): `[heater_generic dragonbreath]` (M141/M191) + `[output_pin dragonbreath_filter]` (fan-only filtration toggle); API v2, deploy lockstep with the firmware |
+| Filament-dry mode | ✅ Timed dry with material presets; validated end-to-end on hardware |
+| Auto (follow-bed) mode | 🚧 Shipped in the state machine + UI; end-to-end hardware soak in progress |
+| Fan-only filtration | ✅ AUTO fan-only band (`filter_temp`) + mode-independent manual `filter` control (dashboard + API); idle-only to enable |
 | Flasher (`tools/flash.py`) | ✅ Backs up full stock flash first, then flashes; `--restore` returns to stock |
 | Web OTA update | ✅ Dual-OTA + rollback; upload from the UI, verified on hardware (DragonBreath-only, refused while heating) |
 | HIL (`pb_hil` / `tools/hil.py`) | ✅ CH341 devboard suite and non-heating real-Panda UART build/flash/no-flash workflows qualified on hardware; native-USB runtime pending on the tested devboard |
@@ -75,12 +77,15 @@ hardware limit. 60–65 °C covers ASA/ABS comfortably.
 
 The responsive, touch-first web UI, served by the device itself over plain HTTP on
 your LAN and embeddable in the Fluidd / Mainsail panel: the live **dashboard**
-(chamber / PTC temperature, trend, and quick controls), **automatic** mode (arm a
-chamber target that follows the printer bed), a timed filament-**drying** cycle
-with material presets, and **settings** (safety limits, comms watchdog, and ±5 °C
-sensor calibration). Provisioning (`/setup`) and DragonBreath-only OTA (`/fw`)
-pages share the same theme. Shown in the dark theme; a light theme and an
-auto / light / dark toggle are built in.
+(chamber / PTC temperature, trend, and quick controls incl. a **Filtration**
+fan-only toggle), **automatic** mode (arm a chamber target that follows the printer
+bed, with an optional fan-only filtration band below the heat threshold), a timed
+filament-**drying** cycle with material presets, and **settings** (safety limits,
+comms watchdog, foldback cut, filtration temperature, and ±5 °C sensor
+calibration). Provisioning (`/setup`) and DragonBreath-only OTA (`/fw`) pages share
+the same theme. Both **light and dark** themes are built in (auto / light / dark
+toggle), and the layout stacks vertically on phones while keeping the full layout
+on desktop.
 
 ## Hardware
 ESP32-C3-MINI-1, mains PSU, PTC heater via SSR (GPIO18), ~220 VAC blower switched
@@ -110,12 +115,13 @@ code and supervise the device.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/v2/info` | device identity, boot identity, firmware and capabilities |
+| GET | `/api/v2/info` | device identity, boot identity, firmware, capabilities, and `rref_kohm` (82/33) |
 | GET | `/api/v2/state` | complete authoritative state snapshot — **no** side effects |
 | GET | `/api/v2/events` | SSE stream of state transitions and telemetry snapshots |
 | GET | `/api/v2/health` | uptime, heap, Wi-Fi signal/channel, SSE client count |
-| POST | `/api/v2/command` | revision-aware OFF/POWER_ON/AUTO/DRYING/fault-clear command |
+| POST | `/api/v2/command` | revision-aware OFF / POWER_ON / AUTO / DRYING / **FILTER** / fault-clear command |
 | POST | `/api/v2/heartbeat` | refresh exactly the device-issued active lease |
+| GET/POST | `/settings` | runtime knobs + bounds: max target, comms watchdog, `cool_release`, `fb_cut` (foldback), `filter_temp`/`filter_auto`, LEDs |
 | POST | `/update` | authenticated DragonBreath app-image OTA; refused while heating |
 
 The alpha `/status`, `/target`, `/heartbeat`, and `/reset` routes are removed.

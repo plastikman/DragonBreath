@@ -1,8 +1,11 @@
-# Panda Breath V1.0.1 — hardware map
+# Panda Breath V1.0 / V1.0.1 — hardware map
 
-BIGTREETECH Panda Breath V1.0.1 control board. Mains-powered PTC chamber heater
+BIGTREETECH Panda Breath control board. Mains-powered PTC chamber heater
 + AC blower fan, controlled over WiFi. Reverse-engineered from the board, the
-schematic, and the stock firmware.
+schematic, and the stock firmware. Reverse-engineered and validated on a **V1.0.1**
+board; the **V1.0** board is identical except for the thermistor reference resistor
+(33 kΩ vs V1.0.1's 82 kΩ), auto-detected at boot from the Rref strap (GPIO19) and
+reported as `rref_kohm` — the V1.0 board is confirmed in the field.
 
 ## Core components
 | Block | Part | Notes |
@@ -13,7 +16,7 @@ schematic, and the stock firmware.
 | Heater switch | **MGR GJ-5-L SSR** | 5 A 24–380 VAC, DC-controlled, on/off only |
 | Fuse | **jdtfuse T6.3A 250V** | over-current only (NOT over-temp) |
 | Fan | **STKJ ST7530B220H** | ~220 VAC EC blower, 0.054 A (~12 W), 2-wire |
-| Fan drive | **MOC3021 + BT136-800E** | random-phase opto-triac + TRIAC, phase-angle |
+| Fan drive | **MOC3021 + BT136-800E** | random-phase opto-triac + TRIAC; hardware supports phase-angle, but DragonBreath drives it **on/off only** (switched at the zero-cross, never phase-chopped) |
 | Zero-cross | **MB6S + TLP785 (P785)** | bridge + opto → ZCD pulse to the MCU |
 
 ## GPIO map (see `components/pb_board/include/pb_board.h`)
