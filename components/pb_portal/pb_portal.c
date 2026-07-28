@@ -198,7 +198,9 @@ static const char CONFIG_WIFI[] =
     "<label>Network</label><select id=ssid name=ssid><option value=''>scanning\xE2\x80\xA6</option></select>"
     "<label>\xE2\x80\xA6 or hidden SSID</label><input name=ssid_manual placeholder='(optional)'>"
     "<label>Password</label><div class=pw><input id=pw type=password name=password autocomplete=off>"
-    "<button type=button id=eye onclick='togglePw()' aria-label='show password'>\xF0\x9F\x91\x81</button></div>"
+    // Eye toggles password visibility. Strikethrough (via CSS) = hidden; plain = shown.
+    // Starts struck since the field starts masked. (No emoji swap — a plain eye only.)
+    "<button type=button id=eye onclick='togglePw()' aria-label='show password' style='text-decoration:line-through'>\xF0\x9F\x91\x81</button></div>"
     "<button type=button class=sec onclick='rescan()'>Rescan networks</button></div>";
 
 // Dedicated firmware-update page (GET /fw) — DragonBreath OTA only, its own page so
@@ -298,12 +300,21 @@ static const char PAGE_TAIL[] =
     "var h=hdr();h['Content-Type']='application/x-www-form-urlencoded';"
     "fetch('/save',{method:'POST',headers:h,body:b}).then(done).catch(done);"
     "return false;}"
+    // Toggle visibility; strikethrough the eye when masked (no monkey emoji).
     "function togglePw(){var p=document.getElementById('pw'),e=document.getElementById('eye');"
-    "var s=p.type==='password';p.type=s?'text':'password';e.textContent=s?'\xF0\x9F\x99\x88':'\xF0\x9F\x91\x81';}"
+    "p.type=p.type==='password'?'text':'password';"
+    "e.style.textDecoration=(p.type==='password')?'line-through':'none';}"
+    // Network list. The first option is empty/selected by default: in STA it means
+    // \"keep current Wi-Fi\" so saving without touching it does NOT rewrite creds
+    // (window.DB_KEEPWIFI); in AP provisioning it's a \"choose a network\" prompt.
+    // This prevents a config-only save (e.g. switching control source) from
+    // silently overwriting Wi-Fi with a blank password.
     "function fill(l){var s=document.getElementById('ssid'),c=s.value;s.innerHTML='';"
-    "if(!l.length){s.innerHTML='<option value=\"\">(none found \xE2\x80\x94 tap Rescan)</option>';return;}"
+    "var o0=document.createElement('option');o0.value='';"
+    "o0.textContent=window.DB_KEEPWIFI?'\xE2\x80\x94 Keep current Wi-Fi \xE2\x80\x94':(l.length?'Select a network\xE2\x80\xA6':'(none found \xE2\x80\x94 tap Rescan)');"
+    "s.appendChild(o0);"
     "l.forEach(function(n){var o=document.createElement('option');o.textContent=n;o.value=n;s.appendChild(o);});"
-    "if(c)s.value=c;}"
+    "s.value=c||'';}"
     "function load(){fetch('/scan.json').then(function(r){return r.json();}).then(fill).catch(function(){});}"
     "function rescan(){fetch('/rescan',{method:'POST'}).then(function(){setTimeout(load,1800);});}"
     "load();setInterval(load,4000);"
@@ -391,6 +402,11 @@ static esp_err_t config_page(httpd_req_t *req)
     SEND(req, PAGE_HDR);     // product header kept on /setup + AP captive portal
     SEND(req, WRAP_OPEN);
     send_auth_inject(req);
+    // In STA mode Wi-Fi is already provisioned, so the network dropdown defaults to
+    // "keep current Wi-Fi" (blank) — a config-only save won't rewrite creds. In AP
+    // provisioning there are no creds yet, so a network must be chosen.
+    if (pb_wifi_state() != PB_WIFI_STATE_AP_PORTAL)
+        SEND(req, "<script>window.DB_KEEPWIFI=1;</script>");
     SEND(req, CONFIG_WIFI);
 
     // Reused buffers: emit each piece before reusing, to keep httpd-task stack

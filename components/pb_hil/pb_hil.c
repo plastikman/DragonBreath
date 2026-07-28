@@ -298,7 +298,12 @@ static void handle_request(const cJSON *request)
             emit(response);
             return;
         }
-        pb_policy_set_env((float)bed_c, cJSON_IsTrue(connected));
+        // bed_target_c is the AUTO/filter trigger (bed setpoint); optional, so a
+        // harness that only injects bed_c still works (defaults to bed_c so the old
+        // "measured == trigger" behavior is preserved for existing HIL scenarios).
+        double bed_target_c = bed_c;
+        json_number(request, "bed_target_c", &bed_target_c);
+        pb_policy_set_env((float)bed_c, (float)bed_target_c, cJSON_IsTrue(connected));
         cJSON_AddBoolToObject(response, "ok", true);
     } else if (strcmp(cmd->valuestring, "zero_cross") == 0) {
         double count = 1.0;

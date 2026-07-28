@@ -41,7 +41,7 @@ static const char PUSHALL[] =
 static SemaphoreHandle_t        s_lock  = NULL;
 static pb_bambu_config_t        s_cfg   = {0};
 static pb_bambu_status_t        s_status = {
-    .state = PB_BAMBU_DISABLED, .bed_temp = NAN, .chamber_temp = NAN,
+    .state = PB_BAMBU_DISABLED, .bed_temp = NAN, .bed_target = NAN, .chamber_temp = NAN,
 };
 static esp_mqtt_client_handle_t s_client = NULL;
 
@@ -105,12 +105,16 @@ static bool find_float(const char *s, const char *key, float *out)
 
 static void parse_report(const char *json)
 {
-    float bed, cham;
+    float bed, bedtgt, cham;
     bool got_bed  = find_float(json, "\"bed_temper\"", &bed);
+    // bed_target_temper is the commanded setpoint AUTO triggers on. Match the
+    // "_target_temper" so it can't be confused with "bed_temper" (strstr finds the
+    // first hit; searching the more specific key avoids the prefix collision).
+    bool got_tgt  = find_float(json, "bed_target_temper", &bedtgt);
     bool got_cham = find_float(json, "\"chamber_temper\"", &cham);
     // NOTE(phase 2b): H2/newer moved chamber temp to a packed device.ctc.info.temp
     // field; only the legacy flat chamber_temper is read here. Bed follow (the
-    // goal) works on all models via bed_temper.
+    // goal) works on all models via bed_temper/bed_target_temper.
 
     xSemaphoreTake(s_lock, portMAX_DELAY);
     if (got_bed) {
@@ -118,6 +122,7 @@ static void parse_report(const char *json)
         s_status.state     = PB_BAMBU_SUBSCRIBED;   // we have live data now
         s_status.connected = true;
     }
+    if (got_tgt)  s_status.bed_target = bedtgt;
     if (got_cham) s_status.chamber_temp = cham;
     xSemaphoreGive(s_lock);
 

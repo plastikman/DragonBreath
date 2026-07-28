@@ -202,10 +202,11 @@ static void control_task(void *arg)
         pb_moonraker_status_t st = {0};
 #ifndef CONFIG_PB_HIL_DEVBOARD
         // Feed the AUTO seam from whichever ONE source is bound. All three paths
-        // converge on pb_policy_set_env(bed_c, connected); the policy is
-        // source-agnostic. Not-connected feeds bed_c=0/connected=false (identical
-        // to the pre-selector behavior when Moonraker was down).
-        float bed_c = 0.0f;
+        // converge on pb_policy_set_env(bed_c, bed_target_c, connected); the policy
+        // is source-agnostic and triggers AUTO on the bed SETPOINT (bed_target_c).
+        // Not-connected feeds zeros/false (identical to the pre-selector behavior
+        // when Moonraker was down).
+        float bed_c = 0.0f, bed_target_c = 0.0f;
         bool  src_connected = false;
         if (s_net_up) {
             switch (s_src) {
@@ -214,7 +215,10 @@ static void control_task(void *arg)
                     pb_bambu_status_t bs;
                     pb_bambu_get_status(&bs);
                     src_connected = (bs.state == PB_BAMBU_SUBSCRIBED);
-                    if (src_connected && isfinite(bs.bed_temp)) bed_c = bs.bed_temp;
+                    if (src_connected) {
+                        if (isfinite(bs.bed_temp))   bed_c = bs.bed_temp;
+                        if (isfinite(bs.bed_target)) bed_target_c = bs.bed_target;
+                    }
                 }
                 break;
             case PB_SRC_HA:
@@ -229,11 +233,12 @@ static void control_task(void *arg)
                     pb_moonraker_get_status(&st);
                     src_connected = (st.state == PB_MK_SUBSCRIBED);
                     bed_c = st.bed_temp;
+                    bed_target_c = st.bed_target;
                 }
                 break;
             }
         }
-        pb_policy_set_env(bed_c, src_connected);
+        pb_policy_set_env(bed_c, bed_target_c, src_connected);
 #endif
 
         // Safety/control loop: enforces every heater cutoff + fan-follows-heater.

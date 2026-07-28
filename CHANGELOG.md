@@ -7,6 +7,26 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.8.0-rc2] - 2026-07-28
+
+### Changed
+- **AUTO / fan-only filtration now trigger on the bed SETPOINT, not the measured
+  bed temperature (stock parity).** Heat (and the filtration band) engage as soon
+  as the print *commands* a bed at/above the threshold — so the chamber warms
+  alongside the bed instead of waiting for the bed to physically reach the
+  threshold — and disengage when the setpoint drops (e.g. print end). Applies to
+  both the Klipper (Moonraker) and Bambu sources; the bed setpoint is now plumbed
+  through the AUTO seam and exposed as `environment.bed_target_c` in the state API.
+
+### Fixed
+- **Changing configuration in `/setup` no longer wipes Wi-Fi.** Switching the
+  control source (or editing any field) could drop the device to AP mode: the
+  browser's Wi-Fi dropdown auto-selected a scanned network and submitted it with a
+  blank password, overwriting the saved credentials. The dropdown now defaults to
+  "keep current Wi-Fi" in STA mode, so a config-only save leaves Wi-Fi untouched.
+- **Password "show" toggle no longer swaps to a monkey emoji.** The reveal button
+  stays a plain eye and indicates state with a strikethrough (struck = hidden).
+
 ## [0.8.0-rc1] - 2026-07-28
 
 ### Added

@@ -153,6 +153,7 @@ static cJSON *state_json(const pb_policy_snapshot_t *s)
     cJSON *environment = cJSON_AddObjectToObject(o, "environment");
     cJSON_AddBoolToObject(environment, "moonraker_connected", s->moonraker_connected);
     add_num1(environment, "bed_temperature_c", s->bed_c);
+    add_num1(environment, "bed_target_c", s->bed_target_c);
     cJSON_AddBoolToObject(environment, "auto_engaged", s->auto_engaged);
     cJSON_AddBoolToObject(environment, "auto_filtering", s->auto_filtering);
     add_num1(environment, "auto_bed_threshold_c", s->auto_bed_threshold_c);

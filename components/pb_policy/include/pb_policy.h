@@ -89,7 +89,8 @@ typedef struct {
     pb_ntc_status_t ptc_status;
 
     bool moonraker_connected;
-    float bed_c;
+    float bed_c;          // measured printer bed temperature (display)
+    float bed_target_c;   // commanded printer bed setpoint (AUTO/filter trigger)
     bool auto_engaged;
     bool auto_filtering;          // AUTO fan-only band active (blower on, no heat)
     float auto_bed_threshold_c;
@@ -173,7 +174,12 @@ bool  pb_policy_get_filter_auto_enable(void);
 
 // Update printer environment used by AUTO.  This is observer input, not a
 // control command, and therefore never creates or refreshes a control lease.
-void pb_policy_set_env(float bed_c, bool moonraker_connected);
+// Feed the printer environment for AUTO. bed_c is the measured bed temperature
+// (display); bed_target_c is the commanded bed SETPOINT, which is what AUTO and the
+// fan-only filtration band trigger on — heat/airflow engage as soon as the print
+// COMMANDS a bed >= threshold, not when the bed physically reaches it (stock
+// parity). Pass bed_target_c = 0 when unknown/disconnected.
+void pb_policy_set_env(float bed_c, float bed_target_c, bool moonraker_connected);
 
 // Refresh exactly the active lease.  A stale/superseded lease cannot keep heat
 // alive.

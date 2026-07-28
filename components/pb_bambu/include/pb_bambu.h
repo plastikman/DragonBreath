@@ -29,6 +29,7 @@ typedef struct {
     pb_bambu_state_t state;
     bool  connected;      // convenience: state == PB_BAMBU_SUBSCRIBED
     float bed_temp;       // bed_temper (°C); NaN until first report
+    float bed_target;     // bed_target_temper (°C, the setpoint AUTO triggers on)
     float chamber_temp;   // chamber_temper (°C); NaN if the model has no sensor
 } pb_bambu_status_t;
 

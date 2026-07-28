@@ -67,7 +67,8 @@ typedef struct {
     uint8_t requested_fan_percent;
 
     bool mk_connected;
-    float bed_c;
+    float bed_c;          // measured bed temperature (display only)
+    float bed_target_c;   // commanded bed setpoint (AUTO/filter trigger)
     float auto_bed_threshold_c;
     bool auto_engaged;
     bool auto_filtering;         // AUTO fan-only band latch (blower on, no heat)
@@ -619,11 +620,12 @@ void pb_policy_stop_drying(pb_source_t source)
     pb_policy_set_mode_off(source);
 }
 
-void pb_policy_set_env(float bed_c, bool moonraker_connected)
+void pb_policy_set_env(float bed_c, float bed_target_c, bool moonraker_connected)
 {
     if (!s_lock) return;
     xSemaphoreTake(s_lock, portMAX_DELAY);
     s.bed_c = isfinite(bed_c) ? bed_c : 0.0f;
+    s.bed_target_c = isfinite(bed_target_c) ? bed_target_c : 0.0f;
     s.mk_connected = moonraker_connected;
     xSemaphoreGive(s_lock);
 }
@@ -870,27 +872,33 @@ void pb_policy_tick(void)
 
         case PB_MODE_AUTO:
         {
+            // Trigger on the bed SETPOINT (commanded), not the measured bed temp
+            // (stock parity): heat engages as soon as the print commands a bed
+            // >= threshold, so the chamber warms alongside the bed instead of
+            // waiting for the bed to physically reach the threshold. Setpoint drops
+            // to 0 when the print ends, which disengages.
             bool was_engaged = s.auto_engaged;
             if (!s.mk_connected) {
                 s.auto_engaged = false;
-            } else if (!s.auto_engaged && s.bed_c >= s.auto_bed_threshold_c) {
+            } else if (!s.auto_engaged && s.bed_target_c >= s.auto_bed_threshold_c) {
                 s.auto_engaged = true;
             } else if (s.auto_engaged
-                       && s.bed_c < s.auto_bed_threshold_c
+                       && s.bed_target_c < s.auto_bed_threshold_c
                                       - PB_AUTO_BED_HYSTERESIS_C) {
                 s.auto_engaged = false;
             }
-            // Fan-only filtration band (stock-like): once the bed reaches
+            // Fan-only filtration band (stock-like): once the bed SETPOINT reaches
             // filter_temp_c the blower runs ALONE — before the heater engages at
-            // the higher auto bed threshold. Same hysteresis shape as engage;
-            // gated off if disabled or Moonraker is down (fail to no-airflow).
+            // the higher auto bed threshold. Same setpoint-trigger + hysteresis
+            // shape as engage; gated off if disabled or Moonraker is down (fail to
+            // no-airflow).
             bool was_filtering = s.auto_filtering;
             if (!s.mk_connected || !s.params.filter_auto_enable) {
                 s.auto_filtering = false;
-            } else if (!s.auto_filtering && s.bed_c >= s.params.filter_temp_c) {
+            } else if (!s.auto_filtering && s.bed_target_c >= s.params.filter_temp_c) {
                 s.auto_filtering = true;
             } else if (s.auto_filtering
-                       && s.bed_c < s.params.filter_temp_c
+                       && s.bed_target_c < s.params.filter_temp_c
                                       - PB_AUTO_BED_HYSTERESIS_C) {
                 s.auto_filtering = false;
             }
@@ -1015,6 +1023,7 @@ void pb_policy_get_snapshot(pb_policy_snapshot_t *out)
     out->requested_fan_percent = s.requested_fan_percent;
     out->moonraker_connected = s.mk_connected;
     out->bed_c = s.bed_c;
+    out->bed_target_c = s.bed_target_c;
     out->auto_engaged = s.auto_engaged;
     out->auto_filtering = (s.mode == PB_MODE_AUTO) && s.auto_filtering;
     out->auto_bed_threshold_c = s.auto_bed_threshold_c;
