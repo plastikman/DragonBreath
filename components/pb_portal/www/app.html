@@ -354,7 +354,12 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
    graph on top, status in the middle, controls at the bottom — and scroll. The
    @container tile rules above still govern the desktop-embedded Fluidd panel;
    this viewport query fires only on an actual phone and wins by source order. ---- */
-@media (max-width: 600px){
+@media (max-width: 600px) and (pointer: coarse){
+  /* pointer: coarse -> real touch device only. The dashboard is embedded as an
+     iframe in Mainsail/Fluidd, where @media width measures the PANEL, not the
+     desktop window — so width alone would reflow a narrow desktop panel. Gating
+     on a touch pointer keeps desktop (mouse) on the embed/tile layout regardless
+     of panel width, and stacks only on actual phones/tablets. */
   .main{ overflow-y: auto; }
   .grid{ flex: 0 0 auto; min-height: auto;
     display: flex; flex-direction: column; gap: 8px; }   /* graph / status / controls, DOM order */
@@ -1474,10 +1479,11 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
       .catch(function(j){ flash('s-maint-msg', 'Refused: '+((j&&(j.message||j.error))||'error'), 'is-error'); });
   });
 
-  /* Device info: firmware in the brand tooltip + the Maintenance panel. */
+  /* Device info -> the Maintenance panel. (The old header brand/tooltip was
+     removed; the firmware version is shown in the footer, populated in apply().) */
   fetch('/api/v2/info').then(function(r){ return r.json(); }).then(function(i){
     if(!i) return;
-    if(i.firmware){ $('brand').title = 'DragonBreath '+i.firmware; u('s-fw', i.firmware); }
+    if(i.firmware) u('s-fw', i.firmware);
     if(i.device_id) u('s-devid', i.device_id);
     if(i.boot_id) u('s-bootid', i.boot_id);
   }).catch(function(){});

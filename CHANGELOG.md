@@ -7,6 +7,22 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-07-28
+
+### Fixed
+- **Settings → Maintenance showed "--" for Firmware / Device ID / Boot ID.** The
+  v0.7.1 header rework removed the brand element, but the `/api/v2/info` handler
+  still set `$('brand').title`, throwing a null-reference that aborted the callback
+  before it populated the Maintenance fields. Removed the stale brand-tooltip write.
+- **Mobile dashboard layout no longer triggers on a narrow desktop Fluidd/Mainsail
+  panel.** The dashboard is embedded as an iframe, where a width media query
+  measures the *panel*, not the desktop window — so a narrow desktop panel wrongly
+  got the phone stack. The vertical stack is now gated on `pointer: coarse` (an
+  actual touch device); desktop keeps the embed/tile layout at any panel width.
+- **Version footer left-aligned** so it tracks the content's left edge instead of
+  centering across the full main width (which drifted away from the ~540 px control
+  card on wide screens).
+
 ## [0.7.1] - 2026-07-28
 
 ### Changed
