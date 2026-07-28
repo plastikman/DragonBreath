@@ -4,13 +4,13 @@ DragonBreath is not intended to reproduce the stock firmware byte-for-byte. This
 matrix records which user-visible Panda Breath behaviors are implemented, still
 planned, deliberately changed for safety, or intentionally omitted.
 
-Current as of **v0.6.0**.
+Current as of **v0.6.5** (drying validated on hardware 2026-07-27; fan-only filtration added 2026-07-28).
 
 | Stock/OEM behavior | DragonBreath status | Notes |
 |---|---|---|
 | Manual chamber target | **Implemented** | Local Web UI and Klipper `M141`/`M191`; device-side regulation and limits remain authoritative. |
 | Follow-printer-bed automatic mode | **Partial** | Policy/API support is present: live Moonraker bed temperature, 3 °C disengage hysteresis, and fail-off on disconnect. The shipped dashboard control is not yet accepted as end-to-end validated. |
-| Timed filament drying | **Partial** | Policy/API support is present: a target plus bounded 1–12 hour duration and automatic shutoff. The shipped dashboard control is not yet accepted as end-to-end validated; named material presets remain planned. |
+| Timed filament drying | **Implemented** | A target plus a bounded 1–12 hour duration with automatic shutoff, driven from the dashboard Dry screen and API v2 (`drying_start` / `drying_stop`). Material presets are implemented (PLA 45 °C/6 h, PETG 65 °C/4 h, ABS 70 °C/4 h, Nylon 55 °C/8 h — one tap pre-fills target + duration). Validated on hardware. |
 | Chamber and PTC temperature display | **Implemented** | Both sensors and their health are exposed in the dashboard and API v2 state. |
 | Sensor-fault and over-temperature shutdown | **Implemented** | Heater fails closed; fixed 85 °C chamber and 105 °C PTC cutoffs are not user-configurable. |
 | Fan follows heater | **Implemented** | TRIAC is held on/off and never phase-angle PWM'd. |
@@ -25,7 +25,7 @@ Current as of **v0.6.0**.
 | Stock WebSocket API and Web UI | **Intentionally omitted** | API v2 and the DragonBreath dashboard are the supported interfaces. |
 | Boot/resume active heating | **Intentionally changed** | DragonBreath always boots OFF and never restores active heat, timers, or leases after reboot. |
 | Persistent fault latch | **Implemented** | Hazard-driven trips (over-temp, sensor fault, comms-loss) are persisted to NVS on the latching transition and restored at boot, so a device that tripped before losing power comes back up heater-OFF with commands inhibited. Boot restore is fail-safe (unreadable store → latched); a failed persist is retried until it commits; clearing is persist-first (HTTP 500 rather than a false "cleared"). User panic-off and the permanent inhibit are deliberately not persisted (clear on reboot). |
-| Fan-only filtration mode | **Unverified / optional** | Not required for parity until stock behavior is confirmed; may be added as a DragonBreath enhancement. |
+| Fan-only filtration mode | **Implemented** | Stock runs the blower alone as the low band of AUTO (bed ≥ `filter_temp`, before the heater engages). DragonBreath reproduces this as a configurable AUTO fan-only band (default on, `filter_temp` default 30 °C) and additionally exposes a mode-independent manual filtration fan (dashboard toggle + `filter` API command). Fan-only in both cases — the heater is never engaged by filtration. |
 
 Safety takes precedence over exact OEM behavior. See [SAFETY.md](SAFETY.md) for
 the enforced invariants and
