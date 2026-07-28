@@ -204,7 +204,9 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
 .state-light{ width: 11px; height: 11px; flex: none; border-radius: 50%; background: var(--muted-foreground); }
 .app[data-state="heating"] .state-light,
 .app[data-state="drying"] .state-light{ background: var(--viz-series-1); }
-.app[data-state="waiting"] .state-light{ background: var(--viz-series-3); }
+.app[data-state="waiting"] .state-light,
+.app[data-state="filtering"] .state-light,
+.app[data-state="cooldown"] .state-light{ background: var(--viz-series-3); }
 .app[data-state="fault"] .state-light{ background: var(--destructive); }
 .summary{ min-height: 18px; color: var(--muted-foreground); font-size: 12px; }
 .status-detail{ margin: 4px 0; min-height: 0; flex: 1 1 auto; overflow: auto;
@@ -860,8 +862,14 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
   function displayState(s){
     if(s.safety.fault_latched || s.safety.inhibited) return 'fault';
     if(s.mode==='drying') return 'drying';
-    if(s.mode==='auto' && !s.environment.auto_engaged) return 'waiting';
     if(s.heater.output || s.heater.demand) return 'heating';
+    // Fan-only cases (no heat): cooldown purge, then filtration (manual or the
+    // AUTO band). Checked before AUTO 'waiting' so an active filter band isn't
+    // reported as merely waiting.
+    var f=s.fan||{};
+    if(f.reason==='thermal_purge') return 'cooldown';
+    if((f.effective_percent||0) > 0) return 'filtering';
+    if(s.mode==='auto' && !s.environment.auto_engaged) return 'waiting';
     return 'off';
   }
   function statusLabel(st, s){
@@ -869,6 +877,8 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     if(st==='drying') return 'Dry cycle';
     if(st==='waiting') return 'Waiting';
     if(st==='heating') return 'Heating';
+    if(st==='cooldown') return 'Cooling down';
+    if(st==='filtering') return 'Filtering';
     return 'Idle';
   }
   function modeLabel(m){
@@ -879,6 +889,8 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     if(st==='drying'){ var m=Math.round((s.drying.remaining_seconds||0)/60); return 'Filament drying — '+m+' min left. Safety chain healthy.'; }
     if(st==='waiting') return 'Armed. Waiting for the printer bed threshold.';
     if(st==='heating') return s.heater.output ? 'Output active. Safety chain healthy.' : 'Heater demand — waiting on the safety chain.';
+    if(st==='cooldown') return 'Residual-heat purge — fan clearing heat, heater off.';
+    if(st==='filtering') return 'Fan-only filtration — heater off, monitoring active.';
     return 'Heater disabled. Monitoring remains active.';
   }
 
