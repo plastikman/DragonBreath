@@ -361,6 +361,51 @@ static void test_auto_requires_live_moonraker_and_uses_hysteresis(void)
     CHECK(!snapshot().auto_engaged);
 }
 
+static void test_auto_filtration_band_fan_only_not_cooldown(void)
+{
+    reset_fixture();
+    // AUTO, heat threshold 100 C; filter_temp defaults to 30 C, band enabled.
+    CHECK(pb_policy_set_auto(
+        60.0f, 100.0f, PB_SOURCE_WEB, 1) == PB_POLICY_OK);
+
+    // Bed below filter_temp: no filtration, fan off.
+    pb_policy_set_env(25.0f, true);
+    pb_policy_tick();
+    pb_policy_snapshot_t snap = snapshot();
+    CHECK(!snap.auto_filtering);
+    CHECK(snap.effective_fan_percent == 0);
+
+    // Bed >= filter_temp but below the heat threshold: fan-only filtration band.
+    pb_policy_set_env(40.0f, true);
+    pb_policy_tick();
+    snap = snapshot();
+    CHECK(snap.auto_filtering);                 // filtering
+    CHECK(!snap.auto_engaged);                  // heater NOT engaged
+    CHECK(snap.effective_target_c == 0.0f);     // no heat demanded
+    CHECK(snap.effective_fan_percent == 100);   // blower running
+    CHECK(!snap.thermal_purge);                 // P1: must NOT read as cooldown purge
+
+    // Hysteresis: stays on within [filter_temp - 3, ...); releases only below it.
+    pb_policy_set_env(28.0f, true);
+    pb_policy_tick();
+    CHECK(snapshot().auto_filtering);
+    pb_policy_set_env(26.0f, true);
+    pb_policy_tick();
+    snap = snapshot();
+    CHECK(!snap.auto_filtering);
+    CHECK(snap.effective_fan_percent == 0);
+
+    // Moonraker disconnect fails to no-airflow even with a hot bed.
+    pb_policy_set_env(40.0f, true);
+    pb_policy_tick();
+    CHECK(snapshot().auto_filtering);
+    pb_policy_set_env(40.0f, false);
+    pb_policy_tick();
+    snap = snapshot();
+    CHECK(!snap.auto_filtering);
+    CHECK(snap.effective_fan_percent == 0);
+}
+
 static void test_drying_is_bounded_and_expires_off(void)
 {
     reset_fixture();
@@ -960,6 +1005,7 @@ int main(void)
     test_new_command_supersedes_old_lease_and_off_is_unconditional();
     test_lease_expiry_latches_watchdog_fault();
     test_auto_requires_live_moonraker_and_uses_hysteresis();
+    test_auto_filtration_band_fan_only_not_cooldown();
     test_drying_is_bounded_and_expires_off();
     test_runtime_limits_drive_auto_and_remote_lease();
     test_local_power_limit_expires_off_without_fault();

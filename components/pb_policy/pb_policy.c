@@ -1049,9 +1049,11 @@ void pb_policy_get_snapshot(pb_policy_snapshot_t *out)
     out->ptc_c = out->ptc_status == PB_NTC_OK
         ? pb_ntc_smoothed_c(PB_NTC_PTC) : NAN;
 
-    out->thermal_purge = !out->heater_demand
-        && !out->fault_latched
-        && out->effective_fan_percent > out->requested_fan_percent;
+    // Report the ACTUAL residual-heat purge state, not an inference from fan
+    // levels. The old "effective fan > requested fan" heuristic also matched the
+    // AUTO fan-only filtration band (effective 100, requested 0), which made the
+    // API report thermal_purge and the UI show "Cooling down" during filtration.
+    out->thermal_purge = s.last_cooldown;
 }
 
 pb_mode_t pb_policy_get_mode(void)

@@ -912,7 +912,8 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
   }
   function fanLabel(s){
     var f=s.fan||{}, why=({heater:'heating', thermal_purge:'cooldown purge',
-                           requested:'manual', fault:'safety airflow'})[f.reason];
+                           requested:'manual', auto_filter:'auto filtration',
+                           fault:'safety airflow'})[f.reason];
     if(f.reason==='off' || (!why && !f.effective_percent)) return 'Off';
     return 'On — '+(why||f.reason)+(f.effective_percent? ' ('+f.effective_percent+'%)':'');
   }

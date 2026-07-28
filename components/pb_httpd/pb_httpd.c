@@ -105,6 +105,7 @@ static const char *fan_reason(const pb_policy_snapshot_t *s)
     if (s->fault_latched || s->inhibited) return "fault";
     if (s->thermal_purge) return "thermal_purge";
     if (s->heater_demand) return "heater";
+    if (s->auto_filtering) return "auto_filter";   // AUTO fan-only band (no heat)
     if (s->effective_fan_percent) return "requested";
     return "off";
 }
