@@ -211,12 +211,14 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
 .summary{ min-height: 18px; color: var(--muted-foreground); font-size: 12px; }
 .status-detail{ margin: 4px 0; min-height: 0; flex: 1 1 auto; overflow: auto;
   display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
-.status-detail > div{ display: flex; align-items: baseline; justify-content: space-between;
+.status-detail > div{ display: flex; align-items: flex-start; justify-content: space-between;
   gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--border); }
 .status-detail > div:last-child{ border-bottom: 0; }
 .status-detail dt{ color: var(--muted-foreground); flex: none; }
-.status-detail dd{ margin: 0; text-align: right; min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Wrap the value instead of truncating with an ellipsis, so a narrow card (thin
+   desktop column or compact tile) still shows the whole line, e.g. the Printer
+   row "connected · bed 26 °C". Wide cards keep it on one line. */
+.status-detail dd{ margin: 0; text-align: right; min-width: 0; overflow-wrap: anywhere; }
 .actions{ display: flex; gap: 6px; margin-top: auto; }
 .actions .btn{ flex: 1; }
 
@@ -341,6 +343,10 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
   .ptc-reading strong{ font-size: 14px; }
   .quick-card{ display: none; }        /* short/wide embed tile: hide secondary controls */
   .summary{ font-size: 11px; }
+  /* Stack each status row (label above value, full width) so nothing truncates in
+     the narrow compact card — e.g. Printer "connected · bed 26 °C". */
+  .status-detail > div{ flex-direction: column; align-items: stretch; gap: 0; padding: 2px 0; }
+  .status-detail dd{ text-align: left; }
   .target{ display: none; }   /* keep PTC visible in compact; drop only secondary copy */
   .app-version{ display: none; }       /* no room in the short tile */
   .page-only{ padding: 10px; }
