@@ -931,6 +931,15 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     u('db-target', s.target.effective_c>0 ? Math.round(s.target.effective_c)+' °C' : 'Off');
     u('db-mode', modeLabel(s.mode));
 
+    /* Light up the quick preset matching the active manual target, the same way the
+       Filtration button shows its state (.btn[aria-pressed="true"]). */
+    var activeTemp = (s.mode==='power_on')
+      ? Math.round(s.target.effective_c || s.target.requested_c || 0) : null;
+    document.querySelectorAll('[data-quick-temp]').forEach(function(b){
+      b.setAttribute('aria-pressed',
+        String(Number(b.dataset.quickTemp) === activeTemp));
+    });
+
     var st = displayState(s);
     app.setAttribute('data-state', st);
     u('db-status', statusLabel(st, s));
