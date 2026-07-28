@@ -148,8 +148,10 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
 .main{ min-width: 0; min-height: 0; overflow: hidden; padding: 12px;
   display: flex; flex-direction: column; }
 /* Brand + version footer replacing the removed header brand; pinned at the bottom
-   of the content column. */
-.app-version{ flex: none; margin-top: 8px; text-align: center;
+   of the content column. Left-aligned so it tracks the content's left edge rather
+   than centering across the full main width — which, on screens wider than the
+   ~540px control card, drifts to screen-center and looks detached from the card. */
+.app-version{ flex: none; margin-top: 8px; text-align: left;
   font-size: 11px; color: var(--muted-foreground); }
 
 .grid{
