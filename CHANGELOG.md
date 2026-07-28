@@ -7,6 +7,20 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-28
+
+### Changed
+- **Dashboard UI: reclaimed header space + mobile-friendly layout** (presentation
+  only — no firmware/behavior change). Removed the topbar (the "DragonBreath"
+  brand) and the per-page heading row that wasted vertical space; the mode name is
+  now folded into each card's intro line ("Manual heat: …", "Automatic mode: …",
+  "Dry cycle: …"), connection status moved to a dot at the top of the rail, and a
+  small **"DragonBreath &lt;version&gt;"** footer (live firmware version) replaces the
+  header brand. On narrow (phone) viewports the dashboard now **stacks vertically —
+  graph, then status, then controls — and scrolls**, instead of the cramped
+  two-column compact that also hid the controls; the wide/short Fluidd embed tile
+  keeps its container-query compact layout.
+
 ## [0.7.0] - 2026-07-28
 
 ### Added
