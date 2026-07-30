@@ -7,24 +7,58 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-30
+
+The pluggable-control-source + web-tools release. **Klipper (Moonraker) remains the
+default and is unchanged**; everything below is additive and the heater safety model
+is untouched and source-independent. Consolidates the 0.8.0-rc1…rc3 pre-releases.
+
 ### Added
-- **`/diag` diagnostics page.** A device-served live view of the `tools/diag.py`
-  telemetry — chamber/element temps, SSR output, mode, fault, running element-temp
-  peak — with a trend chart and a client-side CSV download. Read-only, SSE-driven;
-  **zero device RAM** and no persistence. Header-free, themed like `/fw`.
+- **Selectable control source — Klipper / Bambu / Home Assistant.** The device binds
+  to exactly one printer/controller, chosen in `/setup` (mutually exclusive).
+  - **Home Assistant (validated on hardware).** MQTT client with MQTT-Discovery — a
+    climate entity + chamber/element temperature sensors auto-appear in HA — plus a
+    retained state topic and command topics mapped to heater target/mode (holds a
+    device lease and heartbeats it). Declares Celsius so HA converts °C↔°F correctly
+    in both directions. Verified end-to-end (device + HA + Mosquitto).
+  - **Bambu LAN — EXPERIMENTAL, not yet validated against a printer.** Read-only
+    bed-follow over the printer's on-device LAN MQTT/TLS broker (`bblp` + LAN access
+    code, subscribe `device/<serial>/report`, `pushall` on connect, scan
+    `bed_temper`) feeding AUTO. Built from the OpenBambuAPI / ha-bambulab spec. Opt-in
+    and safe by construction (the source only produces a bed temperature into the
+    already-validated safety logic) — shipped for community validation. Select
+    "Bambu" in `/setup` to test; please report results.
+- **`/diag` diagnostics page.** Live SSE view of the `tools/diag.py` telemetry
+  (chamber/element temps, SSR output, mode, fault, running element-temp peak) with a
+  trend chart and a client-side CSV download. Read-only; **zero device RAM**.
 - **`/console` firmware log page.** Captures the raw `ESP_LOGx` stream into a 16 KB
-  RAM ring (`esp_log_set_vprintf` hook installed at boot, UART output preserved) and
-  serves it at the auth-gated `GET /api/v2/console`; the page auto-refreshes and has
-  a `.txt` download. Motivated by the new no-USB Panda + release-build TX=LED, which
-  make the serial console otherwise unreachable. Read-only / non-interactive.
+  RAM ring (boot log included; UART output preserved) served at the auth-gated
+  `GET /api/v2/console`; terminal-style view with auto-refresh + `.txt` download.
+  Motivated by newer no-USB Panda hardware (and release builds using the UART TX pin
+  as the Power LED), where the serial console is otherwise unreachable.
 
 ### Changed
-- **`tools/flash.py` auto-falls-back the baud rate on poor connections.** Backup,
-  flash, and restore now try 460800 → 230400 → 115200 baud, retrying a failed
-  transfer at the next slower rate instead of aborting. Fixes flaky USB-serial
-  links (some laptops/cables/CH340 adapters) that corrupted the stock backup at the
-  old fixed 460800. `--baud` now pins a single rate; the backup's working rate
-  carries into the flash step. All backup integrity checks are unchanged.
+- **AUTO / fan-only filtration trigger on the bed SETPOINT, not the measured temp**
+  (stock parity): heat/airflow engage as soon as the print *commands* bed ≥ threshold,
+  and disengage when the setpoint drops. Applies to Klipper and Bambu; exposed as
+  `environment.bed_target_c`.
+- **Dashboard status is control-source-aware** — shows "Home Assistant" or
+  "Bambu (&lt;serial&gt;)" instead of a misleading "Printer: not connected";
+  `control_source` + `bambu_serial` added to the state API.
+- **Periodic status heartbeat deduped** (whole-degree temperature compare) so
+  `/console` and the serial log stay readable — repeated states collapse to a
+  `repeated Nx` tally with a periodic liveness flush.
+- **`tools/flash.py` auto-falls-back the baud rate** (460800 → 230400 → 115200) for
+  flaky USB-serial links; `--baud` pins a single rate. All backup integrity checks
+  (size, ESP magic, on-chip hash verify) are unchanged.
+
+### Fixed
+- **`/setup` no longer wipes Wi-Fi on a config-only save.** The Wi-Fi dropdown
+  auto-selected a scanned network and submitted it with a blank password, dropping the
+  device to AP mode; it now defaults to "keep current Wi-Fi" in STA mode, so switching
+  control source (or editing any field) leaves credentials untouched.
+- **Password reveal** on `/setup` stays a plain eye (strikethrough = hidden) instead
+  of swapping to a monkey emoji.
 
 ## [0.8.0-rc3] - 2026-07-28
 
