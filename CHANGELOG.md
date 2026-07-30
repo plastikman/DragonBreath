@@ -7,6 +7,14 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+### Changed
+- **`tools/flash.py` auto-falls-back the baud rate on poor connections.** Backup,
+  flash, and restore now try 460800 → 230400 → 115200 baud, retrying a failed
+  transfer at the next slower rate instead of aborting. Fixes flaky USB-serial
+  links (some laptops/cables/CH340 adapters) that corrupted the stock backup at the
+  old fixed 460800. `--baud` now pins a single rate; the backup's working rate
+  carries into the flash step. All backup integrity checks are unchanged.
+
 ## [0.8.0-rc3] - 2026-07-28
 
 ### Changed

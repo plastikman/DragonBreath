@@ -57,6 +57,29 @@ def run(cmd):
     return subprocess.call(cmd)
 
 
+# Fast -> reliable. Poor USB-serial links (some laptops, long/cheap cables, certain
+# CH340 adapters) corrupt bulk transfers at high baud, so an operation that fails is
+# retried at the next slower rate automatically. --baud pins a single rate instead.
+BAUD_LADDER = [460800, 230400, 115200]
+
+
+def run_esptool(port, bauds, *args):
+    """Run one esptool operation, dropping to a slower baud on failure. esptool
+    read_flash/write_flash re-run cleanly (they overwrite the whole target), so a
+    failed high-baud attempt is safe to retry slower. Returns (rc, used_baud)."""
+    rc = 1
+    for i, b in enumerate(bauds):
+        if len(bauds) > 1:
+            print(f"      [connection speed: {b} baud]")
+        rc = run(esptool_cmd(port, b, *args))
+        if rc == 0:
+            return 0, b
+        if i + 1 < len(bauds):
+            print(f"      {b} baud failed — retrying at {bauds[i + 1]} baud "
+                  f"(slower, more reliable on poor connections)…")
+    return rc, bauds[-1]
+
+
 def check_esptool():
     try:
         subprocess.check_output([sys.executable, "-m", "esptool", "version"],
@@ -84,16 +107,18 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def do_backup(port, baud, backup_dir):
+def do_backup(port, bauds, backup_dir):
+    """Returns (path, used_baud) on success, or (None, None) on failure."""
     os.makedirs(backup_dir, exist_ok=True)
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     path = os.path.join(backup_dir, f"stock-{stamp}.bin")
     print(f"\n[1/3] Backing up the full {FLASH_SIZE // (1024*1024)} MB flash -> {path}")
     print("      (this reads the WHOLE chip; ~1-2 min. Do not unplug.)")
-    rc = run(esptool_cmd(port, baud, "read_flash", "0", hex(FLASH_SIZE), path))
+    rc, baud = run_esptool(port, bauds, "read_flash", "0", hex(FLASH_SIZE), path)
     if rc != 0:
-        print("ERROR: backup read failed — NOT flashing. Fix the connection and retry.")
-        return None
+        print("ERROR: backup read failed at all baud rates — NOT flashing. Fix the "
+              "connection (cable/port) and retry.")
+        return None, None
 
     # 1) exact size, 2) not a blank/failed read (real image starts with the ESP
     # magic byte 0xE9), 3) contents actually match the chip (on-device hash via
@@ -101,26 +126,26 @@ def do_backup(port, baud, backup_dir):
     size = os.path.getsize(path) if os.path.exists(path) else 0
     if size != FLASH_SIZE:
         print(f"ERROR: backup is {size} bytes, expected exactly {FLASH_SIZE}. NOT flashing.")
-        return None
+        return None, None
     with open(path, "rb") as f:
         magic = f.read(1)
     if magic != b"\xe9":
         print(f"ERROR: backup does not start with the ESP image magic (0xE9); got "
               f"0x{magic.hex() or '??'}. The read looks blank/corrupt — NOT flashing.")
-        return None
+        return None, None
     print("      verifying backup against the chip (hash)...")
     if run(esptool_cmd(port, baud, "verify_flash", "0x0", path)) != 0:
         print("ERROR: backup failed hash verification against the chip — NOT flashing.")
-        return None
+        return None, None
 
     digest = sha256_file(path)
     print(f"      backup OK: {size} bytes, verified.")
     print(f"      SHA-256: {digest}")
     print("      Keep this file safe — it is the ONLY way back to stock.")
-    return path
+    return path, baud
 
 
-def do_flash(port, baud, build_dir):
+def do_flash(port, bauds, build_dir):
     args = []
     for offset, rel in IMAGES:
         p = os.path.join(build_dir, rel)
@@ -132,13 +157,14 @@ def do_flash(port, baud, build_dir):
     app = os.path.join(build_dir, "dragonbreath.bin")
     print(f"\n[3/3] Flashing DragonBreath from {build_dir}")
     print(f"      app image SHA-256: {sha256_file(app)}")
-    return run(esptool_cmd(port, baud,
-                           "--before", "default_reset", "--after", "hard_reset",
-                           "write_flash", "--flash_mode", "dio",
-                           "--flash_size", "4MB", "--flash_freq", "80m", *args))
+    rc, _ = run_esptool(port, bauds,
+                        "--before", "default_reset", "--after", "hard_reset",
+                        "write_flash", "--flash_mode", "dio",
+                        "--flash_size", "4MB", "--flash_freq", "80m", *args)
+    return rc
 
 
-def do_restore(port, baud, image):
+def do_restore(port, bauds, image):
     if not os.path.exists(image):
         print(f"ERROR: backup image not found: {image}")
         return 1
@@ -159,9 +185,9 @@ def do_restore(port, baud, image):
     if not confirm("This OVERWRITES the entire chip. Continue?"):
         print("Aborted.")
         return 1
-    rc = run(esptool_cmd(port, baud,
-                         "--before", "default_reset", "--after", "hard_reset",
-                         "write_flash", "--flash_size", "detect", "0x0", image))
+    rc, baud = run_esptool(port, bauds,
+                           "--before", "default_reset", "--after", "hard_reset",
+                           "write_flash", "--flash_size", "detect", "0x0", image)
     if rc != 0:
         return rc
     print("  verifying restored image against the chip (hash)...")
@@ -176,7 +202,9 @@ def do_restore(port, baud, image):
 def main():
     ap = argparse.ArgumentParser(description="DragonBreath flasher (backs up stock first).")
     ap.add_argument("--port", help="serial port (default: esptool auto-detect)")
-    ap.add_argument("--baud", type=int, default=460800, help="baud rate (default 460800)")
+    ap.add_argument("--baud", type=int, default=None,
+                    help="pin a single baud rate; default auto-falls-back "
+                         f"{'->'.join(str(b) for b in BAUD_LADDER)} on failure")
     ap.add_argument("--build-dir", default=os.path.join(REPO_ROOT, "build"),
                     help="ESP-IDF build dir (default: <repo>/build)")
     ap.add_argument("--backup-dir", default=os.path.join(REPO_ROOT, "backups"),
@@ -190,8 +218,11 @@ def main():
     if not check_esptool():
         return 1
 
+    # Pinned rate -> use only that; otherwise the fast->reliable auto-fallback ladder.
+    bauds = [args.baud] if args.baud else list(BAUD_LADDER)
+
     if args.restore:
-        return do_restore(args.port, args.baud, args.restore)
+        return do_restore(args.port, bauds, args.restore)
 
     print("=" * 70)
     print(" DragonBreath flasher")
@@ -209,9 +240,12 @@ def main():
         if not confirm("Are you SURE? This cannot be undone without a backup."):
             print("Aborted."); return 1
     else:
-        path = do_backup(args.port, args.baud, args.backup_dir)
+        path, used_baud = do_backup(args.port, bauds, args.backup_dir)
         if path is None:
             return 1
+        # The backup found a baud the link handles for a full 4 MB transfer; start
+        # the flash there (and below) so we don't re-hit a known-bad higher rate.
+        bauds = [b for b in bauds if b <= used_baud] or [used_baud]
         print(f"\n*** IMPORTANT: keep {path} safe — it is the ONLY way back to")
         print("*** stock. Copy it off this machine (cloud/USB) before continuing. ***")
 
@@ -220,7 +254,7 @@ def main():
         print("Aborted. Your backup (if taken) is kept.")
         return 1
 
-    rc = do_flash(args.port, args.baud, args.build_dir)
+    rc = do_flash(args.port, bauds, args.build_dir)
     if rc == 0:
         print("\nDone. The board reboots into DragonBreath. On first boot with no saved")
         print("Wi-Fi it starts an 'DragonBreath_XXXX' AP — connect and open http://192.168.4.1")
