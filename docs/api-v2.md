@@ -232,12 +232,13 @@ These predate/sit beside the versioned control surface and are stable:
   control token; `{"token":""}` / `{"token":null}` / `{}` clears it. The secret is
   never echoed; the response is `{"ok":true,"token_set":<bool>}`. Once a token is
   set, every mutating request must carry it in `X-DragonBreath-Auth`.
-- `POST /update` — authenticated DragonBreath application-image OTA. Streams the
-  `.bin` into the inactive slot, verifies it (image checksum + `dragonbreath`
-  project identity — foreign images are rejected), reports the SHA-256 it
-  computed, sets it as the boot slot, and reboots. **Refused while the heater is
-  armed/on.** A bad image that crashes before the app marks itself healthy rolls
-  back on the next boot.
+- `POST /update` — authenticated application-image OTA. Streams the `.bin` into the
+  inactive slot, verifies it (image checksum + project identity — accepts a
+  `dragonbreath` image **or** a stock `panda_breath` image so a user can revert to
+  stock over WiFi; all other images are rejected), reports the SHA-256 it computed,
+  sets it as the boot slot, and reboots. **Refused while the heater is armed/on.** A
+  bad image that crashes before the app marks itself healthy rolls back on the next
+  boot.
 
 The device also serves the captive-portal / dashboard HTML on `GET /` (and
 `/setup`, `/fw`, `/scan.json`, `POST /save`, `/rescan`) — the human web UI, not

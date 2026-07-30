@@ -7,6 +7,22 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [1.0.0-rc1] - 2026-07-30
+
+### Added
+- **Revert to stock over WiFi: `/update` now accepts stock Panda Breath images.**
+  The OTA identity gate previously accepted only `project_name == "dragonbreath"`;
+  it now also accepts **`panda_breath`** (any version — 1.0.3 / 1.0.4 both carry that
+  project name). This lets a user flash their own stock backup's **app image** back
+  through DragonBreath's own web updater and return to stock — no USB, no opening the
+  unit. All other images are still rejected. Pairs with the no-USB *install* path
+  (stock's own updater → DragonBreath), which was validated end-to-end on hardware
+  with the v0.8.0 release image.
+  - Note: upload the stock **app** image (the OTA-type `.bin` / the app partition of
+    a backup), not a full 4 MB flash dump. Reverting to a *fully working* stock this
+    way assumes DragonBreath is running in the stock partition layout (i.e. it was
+    installed via stock's OTA), so stock's spiffs/partitions are intact.
+
 ## [0.8.0] - 2026-07-30
 
 The pluggable-control-source + web-tools release. **Klipper (Moonraker) remains the

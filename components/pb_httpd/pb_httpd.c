@@ -947,16 +947,25 @@ static esp_err_t update_post(httpd_req_t *req)
     if (err != ESP_OK)
         return ota_fail(req, "400 Bad Request", 0, "invalid firmware image");
 
-    // Identity check: only boot images that are actually DragonBreath — reject any
-    // other (even a valid ESP32-C3) app. The app descriptor's project_name comes
-    // from CMake project(dragonbreath).
+    // Identity check: accept either a DragonBreath image OR a stock Panda Breath
+    // image ("panda_breath", any version). The latter lets a user revert to stock
+    // over WiFi by uploading their own stock backup's app image — no USB needed.
+    // Everything else (any other valid ESP32-C3 app) is still rejected. The app
+    // descriptor's project_name comes from CMake project(<name>).
     esp_app_desc_t desc;
     if (esp_ota_get_partition_description(part, &desc) != ESP_OK)
         return ota_fail(req, "400 Bad Request", 0, "cannot read image descriptor");
-    if (strcmp(desc.project_name, "dragonbreath") != 0) {
-        ESP_LOGE(TAG, "OTA rejected: project_name='%s' (not dragonbreath)", desc.project_name);
-        return ota_fail(req, "400 Bad Request", 0, "not an DragonBreath image");
+    bool is_dragonbreath = strcmp(desc.project_name, "dragonbreath") == 0;
+    bool is_panda_stock  = strcmp(desc.project_name, "panda_breath") == 0;
+    if (!is_dragonbreath && !is_panda_stock) {
+        ESP_LOGE(TAG, "OTA rejected: project_name='%s' (not dragonbreath or panda_breath)",
+                 desc.project_name);
+        return ota_fail(req, "400 Bad Request", 0,
+                        "not a DragonBreath or stock Panda Breath image");
     }
+    if (is_panda_stock)
+        ESP_LOGW(TAG, "OTA: accepting stock Panda image '%s' v%s (revert to stock)",
+                 desc.project_name, desc.version);
 
     if (esp_ota_set_boot_partition(part) != ESP_OK)
         return ota_fail(req, "500 Internal Server Error", 0, "set boot partition failed");
