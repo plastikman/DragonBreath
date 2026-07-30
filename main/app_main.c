@@ -295,6 +295,11 @@ static void control_task(void *arg)
 
 void app_main(void)
 {
+    // Install the console-capture hook FIRST so the whole app_main boot log is
+    // teed into the ring served by /console (the device may have no reachable
+    // serial port). Cheap + no dependencies; safe before anything else.
+    pb_evlog_console_init();
+
     ESP_LOGI(TAG, "DragonBreath starting");
 
     pb_evlog_init();

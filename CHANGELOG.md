@@ -7,6 +7,17 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+- **`/diag` diagnostics page.** A device-served live view of the `tools/diag.py`
+  telemetry — chamber/element temps, SSR output, mode, fault, running element-temp
+  peak — with a trend chart and a client-side CSV download. Read-only, SSE-driven;
+  **zero device RAM** and no persistence. Header-free, themed like `/fw`.
+- **`/console` firmware log page.** Captures the raw `ESP_LOGx` stream into a 16 KB
+  RAM ring (`esp_log_set_vprintf` hook installed at boot, UART output preserved) and
+  serves it at the auth-gated `GET /api/v2/console`; the page auto-refreshes and has
+  a `.txt` download. Motivated by the new no-USB Panda + release-build TX=LED, which
+  make the serial console otherwise unreachable. Read-only / non-interactive.
+
 ### Changed
 - **`tools/flash.py` auto-falls-back the baud rate on poor connections.** Backup,
   flash, and restore now try 460800 → 230400 → 115200 baud, retrying a failed

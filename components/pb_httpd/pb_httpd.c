@@ -1093,6 +1093,28 @@ static esp_err_t logs_get(httpd_req_t *req)
     return send_json(req, o);
 }
 
+// GET /api/v2/console — auth-gated (raw firmware log is chattier than the curated
+// event ring: IPs, Wi-Fi/mDNS detail). Snapshots the pb_evlog console byte ring as
+// text/plain, oldest -> newest. Read-only; never energizes the heater.
+static esp_err_t console_get(httpd_req_t *req)
+{
+    if (!pb_httpd_auth_ok(req)) {
+        httpd_resp_set_status(req, "403 Forbidden");
+        httpd_resp_set_type(req, "application/json");
+        return httpd_resp_sendstr(req, "{\"error\":\"missing/invalid X-DragonBreath-Auth header\"}");
+    }
+    char *buf = malloc(PB_EVLOG_CONSOLE_BYTES + 1);
+    if (!buf) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
+        return ESP_FAIL;
+    }
+    size_t n = pb_evlog_console_snapshot(buf, PB_EVLOG_CONSOLE_BYTES + 1);
+    httpd_resp_set_type(req, "text/plain; charset=utf-8");
+    esp_err_t r = httpd_resp_send(req, buf, n);
+    free(buf);
+    return r;
+}
+
 // POST /api/v2/token — auth-gated. Body {"token":"..."} sets the control token
 // (<=64 chars); {"token":""} / {"token":null} / {} clears it. Setting a token
 // means subsequent mutating requests must send it (the caller keeps using it).
@@ -1140,7 +1162,7 @@ esp_err_t pb_httpd_start(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.lru_purge_enable = true;
     cfg.uri_match_fn = httpd_uri_match_wildcard;   // lets pb_portal add a "/*" captive catch-all
-    cfg.max_uri_handlers = 23;                     // 22 used (+ /favicon.ico) + 1 spare
+    cfg.max_uri_handlers = 27;                     // 25 used (+ /diag, /console, /api/v2/console) + spare
     // The OTA handler hashes the image (mbedtls) with a 1 KB read buffer + the
     // app descriptor on-stack, which overflows the 4 KB default httpd task stack
     // (stack-protection panic). Give it headroom.
@@ -1179,6 +1201,7 @@ esp_err_t pb_httpd_start(void)
     httpd_uri_t setg   = { .uri = "/settings",         .method = HTTP_GET,  .handler = settings_get };
     httpd_uri_t setp   = { .uri = "/settings",         .method = HTTP_POST, .handler = settings_post };
     httpd_uri_t logs   = { .uri = "/api/v2/logs",      .method = HTTP_GET,  .handler = logs_get };
+    httpd_uri_t cons   = { .uri = "/api/v2/console",   .method = HTTP_GET,  .handler = console_get };
     httpd_uri_t rst    = { .uri = "/api/v2/restart",   .method = HTTP_POST, .handler = restart_post };
     httpd_uri_t frst   = { .uri = "/api/v2/factory-reset", .method = HTTP_POST, .handler = factory_reset_post };
     httpd_uri_t tok    = { .uri = "/api/v2/token",     .method = HTTP_POST, .handler = token_post };
@@ -1194,6 +1217,7 @@ esp_err_t pb_httpd_start(void)
     httpd_register_uri_handler(s_server, &setg);
     httpd_register_uri_handler(s_server, &setp);
     httpd_register_uri_handler(s_server, &logs);
+    httpd_register_uri_handler(s_server, &cons);
     httpd_register_uri_handler(s_server, &rst);
     httpd_register_uri_handler(s_server, &frst);
     httpd_register_uri_handler(s_server, &tok);

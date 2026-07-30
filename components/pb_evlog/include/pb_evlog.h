@@ -29,3 +29,20 @@ void pb_evlog_add(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 // Copy up to `max` most-recent entries into `out`, newest first. Returns how
 // many were copied.
 size_t pb_evlog_snapshot(pb_evlog_entry_t *out, size_t max);
+
+// ---- firmware console capture (raw ESP_LOGx stream) ----
+// Separate from the curated event ring above: a fixed byte ring that captures the
+// full ESP_LOGx output via an esp_log_set_vprintf hook while still forwarding to
+// UART. Motivation: newer Panda hardware has no external USB, and release builds
+// repurpose the UART TX pin (GPIO21) as the Power LED — so the serial console is
+// otherwise unreachable. Served by the /console page.
+#define PB_EVLOG_CONSOLE_BYTES  16384   // ~180 lines; ~3% of worst-case free heap
+
+// Install the log-capture hook. Call ONCE, as early as possible in app_main, so
+// the boot log is captured. Idempotent. Uses a spinlock (safe from any context);
+// never logs from within the hook (no recursion).
+void pb_evlog_console_init(void);
+
+// Copy the console ring, oldest -> newest, into `out` (always NUL-terminated).
+// Returns bytes written (excluding the NUL). `max` should be >= the ring size + 1.
+size_t pb_evlog_console_snapshot(char *out, size_t max);

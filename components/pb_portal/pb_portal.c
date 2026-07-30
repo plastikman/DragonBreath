@@ -371,6 +371,168 @@ static esp_err_t fw_page(httpd_req_t *req)
     return httpd_resp_send_chunk(req, NULL, 0);
 }
 
+// Diagnostics page (GET /diag): the tools/diag.py logger in the browser. Pure
+// client-side over the existing read-only SSE stream (/api/v2/events) + /api/v2/info
+// — no new device state, no persistence. Shows chamber/element temps, SSR output,
+// mode, fault, a running element-temp peak, a live trend, and a client-side CSV
+// download of everything sampled since the page opened.
+static const char DIAG_BODY[] =
+    "<style>"
+    ".dgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:.6em 0}"
+    ".dgrid>div{background:var(--input);border-radius:8px;padding:10px}"
+    ".dlab{font-size:.72rem;color:var(--muted)}"
+    ".dval{font-size:1.2rem;font-weight:700;margin-top:2px}"
+    ".dval.warn{color:var(--bad)}"
+    "#d-chart{display:block;width:100%;height:120px;background:var(--input);border-radius:8px;margin:.5em 0}"
+    ".drow{display:flex;gap:8px}.drow button{flex:1;margin-top:0}"
+    "</style>"
+    "<div class=card><h2>Diagnostics</h2>"
+    "<div id=d-meta><small>connecting\xE2\x80\xA6</small></div>"
+    "<div class=dgrid>"
+    "<div><div class=dlab>Chamber</div><div class=dval id=d-ch>--</div></div>"
+    "<div><div class=dlab>Element (PTC)</div><div class=dval id=d-ptc>--</div></div>"
+    "<div><div class=dlab>Peak element</div><div class=dval id=d-peak>--</div></div>"
+    "<div><div class=dlab>SSR output</div><div class=dval id=d-ssr>--</div></div>"
+    "<div><div class=dlab>Mode</div><div class=dval id=d-mode>--</div></div>"
+    "<div><div class=dlab>Fault</div><div class=dval id=d-fault>--</div></div>"
+    "</div>"
+    "<canvas id=d-chart></canvas>"
+    "<div style='display:flex;justify-content:space-between;align-items:center'>"
+    "<small><span style='color:#3399ff'>\xE2\x97\x8F</span> chamber "
+    "<span style='color:#ff8a49'>\xE2\x97\x8F</span> element</small>"
+    "<small id=d-stat>0 samples</small></div>"
+    "<div class=drow style='margin-top:10px'>"
+    "<button type=button class=go id=d-dl>Download CSV</button>"
+    "<button type=button class=sec id=d-clear>Clear</button>"
+    "</div></div>"
+    "<p style='text-align:center'><small><a href='/'>\xE2\x86\x90 Back to status</a></small></p>"
+    "<div id=ver style='text-align:center;color:var(--muted);font-size:.72rem;margin-top:2px'></div>"
+    "<script>(function(){"
+    "var peak=0,samples=[],t0=null,MAX=900;"      // cap ~30 min at 2 s to bound the tab's memory
+    "function $(i){return document.getElementById(i);}"
+    "if(window.DB_VER)$('ver').textContent='DragonBreath '+window.DB_VER;"
+    "fetch('/api/v2/info',{cache:'no-store'}).then(function(r){return r.json();}).then(function(i){"
+    "$('d-meta').innerHTML='<small>device '+i.device_id+' \\u00b7 fw '+i.firmware+' \\u00b7 Rref '+i.rref_kohm+'k</small>';"
+    "}).catch(function(){});"
+    "function f1(x){return (x==null)?'--':Number(x).toFixed(1);}"
+    "function apply(s){"
+    "if(!s||s.api_version!==2)return;"
+    "var ch=s.sensors.chamber,pt=s.sensors.ptc,saf=s.safety||{};"
+    "var chv=ch.temperature_c,ptv=pt.temperature_c,out=!!s.heater.output,fl=!!saf.fault_latched;"
+    "if(ptv!=null&&ptv>peak)peak=ptv;"
+    "$('d-ch').textContent=f1(chv)+' \\u00b0C';"
+    "$('d-ptc').textContent=f1(ptv)+' \\u00b0C'+(pt.status!=='ok'?' ('+pt.status+')':'');"
+    "$('d-peak').textContent=f1(peak)+' \\u00b0C';"
+    "$('d-ssr').textContent=out?'ON':'off';"
+    "$('d-mode').textContent=s.mode;"
+    "var fe=$('d-fault');fe.textContent=fl?('FAULT: '+(saf.reason||'?')):'none';fe.className='dval'+(fl?' warn':'');"
+    "var now=Date.now()/1000;if(t0==null)t0=now;"
+    "samples.push({t:now-t0,ch:chv,pt:ptv,ps:pt.status,o:out?1:0,m:s.mode,fl:fl?1:0,rs:saf.reason||'',pk:peak});"
+    "if(samples.length>MAX)samples.shift();"
+    "$('d-stat').textContent=samples.length+' samples';draw();"
+    "}"
+    "function draw(){"
+    "var c=$('d-chart');var w=c.clientWidth||300,h=120;c.width=w;c.height=h;"
+    "var x=c.getContext('2d');x.clearRect(0,0,w,h);if(samples.length<2)return;"
+    "var mx=1;samples.forEach(function(s){if(s.ch!=null&&s.ch>mx)mx=s.ch;if(s.pt!=null&&s.pt>mx)mx=s.pt;});"
+    "mx=Math.ceil(mx/20)*20;"
+    "function px(i){return i*(w-4)/(samples.length-1)+2;}"
+    "function py(v){return h-4-(v/mx)*(h-8);}"
+    "function ln(k,col){x.beginPath();x.strokeStyle=col;x.lineWidth=1.5;var st=false;"
+    "for(var i=0;i<samples.length;i++){var v=samples[i][k];if(v==null){st=false;continue;}"
+    "if(!st){x.moveTo(px(i),py(v));st=true;}else x.lineTo(px(i),py(v));}x.stroke();}"
+    "ln('pt','#ff8a49');ln('ch','#3399ff');"
+    "}"
+    "$('d-dl').addEventListener('click',function(){"
+    "var r=['t_s,chamber_c,ptc_c,ptc_status,out,mode,fault,reason,peak_c'];"
+    "samples.forEach(function(s){r.push([s.t.toFixed(1),(s.ch==null?'':s.ch.toFixed(1)),(s.pt==null?'':s.pt.toFixed(1)),s.ps,s.o,s.m,s.fl,'\"'+String(s.rs).replace(/\"/g,'\"\"')+'\"',s.pk.toFixed(1)].join(','));});"
+    "var b=new Blob([r.join('\\n')+'\\n'],{type:'text/csv'});"
+    "var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='dragonbreath_diag.csv';a.click();"
+    "setTimeout(function(){URL.revokeObjectURL(a.href);},1000);"
+    "});"
+    "$('d-clear').addEventListener('click',function(){samples=[];peak=0;t0=null;$('d-stat').textContent='0 samples';draw();});"
+    "window.addEventListener('resize',draw);"
+    "var es=new EventSource('/api/v2/events');"
+    "function ev(e){try{apply(JSON.parse(e.data));}catch(_){}}"
+    "es.addEventListener('state',ev);es.addEventListener('telemetry',ev);"
+    "})();</script></body></html>";
+
+// Live diagnostics page (GET /diag). Read-only; reuses the SSE stream.
+static esp_err_t diag_page(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    SEND(req, PAGE_HEAD);           // header-free (like /fw) — no PAGE_HDR
+    SEND(req, WRAP_OPEN);
+    send_version_inject(req);       // window.DB_VER for the footer
+    SEND(req, DIAG_BODY);
+    return httpd_resp_send_chunk(req, NULL, 0);
+}
+
+// Firmware console page (GET /console): the raw ESP_LOGx stream captured into the
+// pb_evlog byte ring, fetched from the auth-gated GET /api/v2/console and shown in a
+// scrolling monospace view with auto-refresh + Download. Read-only / non-interactive.
+// The device page itself is open (a GET can't carry the auth header); the DATA fetch
+// is gated (JS sends X-DragonBreath-Auth), so the chatty log isn't world-readable.
+static const char CONSOLE_BODY[] =
+    "<style>"
+    // Widen the console page well past the default 28em so ~80-column log lines fit
+    // as real lines instead of wrapping mid-content.
+    ".wrap{max-width:min(96vw,900px)}"
+    // Terminal-style: monospace, NO wrap, horizontal scroll for long lines.
+    "#c-log{font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;white-space:pre;tab-size:4;"
+    "background:var(--input);border-radius:8px;padding:10px 12px;"
+    "max-height:70vh;overflow:auto;margin:.4em 0}"
+    ".drow{display:flex;gap:8px}.drow button{flex:1;margin-top:0}"
+    "</style>"
+    "<div class=card><h2>Console</h2>"
+    "<div id=c-meta><small>firmware log\xE2\x80\xA6</small></div>"
+    "<pre id=c-log>loading\xE2\x80\xA6</pre>"
+    "<div class=drow>"
+    "<button type=button class=go id=c-dl>Download</button>"
+    "<button type=button class=sec id=c-pause>Pause</button>"
+    "</div></div>"
+    "<p style='text-align:center'><small><a href='/'>\xE2\x86\x90 Back to status</a></small></p>"
+    "<div id=ver style='text-align:center;color:var(--muted);font-size:.72rem;margin-top:2px'></div>"
+    "<script>" DB_AUTH_JS
+    "(function(){"
+    "var paused=false,last='';"
+    "function $(i){return document.getElementById(i);}"
+    "if(window.DB_VER)$('ver').textContent='DragonBreath '+window.DB_VER;"
+    "function load(){"
+    "fetch('/api/v2/console',{cache:'no-store',headers:hdr()}).then(function(r){"
+    "if(r.status==403){localStorage.removeItem('db_tok');"
+    "$('c-meta').innerHTML='<small class=warn>Auth rejected \\u2014 reload and re-enter the control token.</small>';return null;}"
+    "return r.text();"
+    "}).then(function(t){"
+    "if(t==null)return;t=t.replace(/\\x1b\\[[0-9;]*m/g,'');last=t;var pre=$('c-log');"
+    "var atEnd=pre.scrollTop+pre.clientHeight>=pre.scrollHeight-6;"
+    "pre.textContent=t||'(no log captured yet)';"
+    "if(atEnd)pre.scrollTop=pre.scrollHeight;"
+    "$('c-meta').innerHTML='<small>'+t.length+' bytes \\u00b7 '+(paused?'paused':'auto-refresh 2s')+'</small>';"
+    "}).catch(function(){});"
+    "}"
+    "$('c-dl').addEventListener('click',function(){"
+    "var b=new Blob([last||''],{type:'text/plain'});"
+    "var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='dragonbreath-console.txt';a.click();"
+    "setTimeout(function(){URL.revokeObjectURL(a.href);},1000);"
+    "});"
+    "$('c-pause').addEventListener('click',function(){paused=!paused;this.textContent=paused?'Resume':'Pause';if(!paused)load();});"
+    "load();setInterval(function(){if(!paused)load();},2000);"
+    "})();</script></body></html>";
+
+// Firmware console page (GET /console). Header-free (like /fw); auth bootstrap so
+// the JS can fetch the gated /api/v2/console.
+static esp_err_t console_page(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    SEND(req, PAGE_HEAD);
+    SEND(req, WRAP_OPEN);
+    send_auth_inject(req);          // DB_TOK / DB_NEEDTOK for the gated fetch
+    send_version_inject(req);
+    SEND(req, CONSOLE_BODY);
+    return httpd_resp_send_chunk(req, NULL, 0);
+}
+
 // Wi-Fi + control-source config page (AP captive root, and /setup in STA mode).
 // The device binds to exactly ONE control source; the card carries all three
 // field groups and reveals only the selected one (JS). Non-secret values are
@@ -642,6 +804,8 @@ esp_err_t pb_portal_start(void)
     httpd_uri_t scan   = { .uri = "/scan.json", .method = HTTP_GET,  .handler = scan_json };
     httpd_uri_t setup  = { .uri = "/setup",     .method = HTTP_GET,  .handler = config_page };
     httpd_uri_t fw     = { .uri = "/fw",        .method = HTTP_GET,  .handler = fw_page };
+    httpd_uri_t diag   = { .uri = "/diag",      .method = HTTP_GET,  .handler = diag_page };
+    httpd_uri_t cons   = { .uri = "/console",   .method = HTTP_GET,  .handler = console_page };
     httpd_uri_t favic  = { .uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_ico };
     httpd_uri_t root   = { .uri = "/*",          .method = HTTP_GET,  .handler = root_page };
     httpd_register_uri_handler(s, &save);
@@ -649,6 +813,8 @@ esp_err_t pb_portal_start(void)
     httpd_register_uri_handler(s, &scan);
     httpd_register_uri_handler(s, &setup);
     httpd_register_uri_handler(s, &fw);
+    httpd_register_uri_handler(s, &diag);
+    httpd_register_uri_handler(s, &cons);
     httpd_register_uri_handler(s, &favic);  // before the catch-all so /favicon.ico != SPA
     httpd_register_uri_handler(s, &root);   // catch-all LAST (captive-portal probes)
 
