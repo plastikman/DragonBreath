@@ -279,6 +279,19 @@ static esp_err_t info_get(httpd_req_t *req)
     // Divider reference resistor resolved from the GPIO19 strap (diagnostic): 82 or
     // 33 kOhm; a board whose strap floats comes up at the fail-safe 33 kOhm default.
     cJSON_AddNumberToObject(o, "rref_kohm", pb_ntc_rref_kohm());
+    // Inactive OTA slot contents — lets the UI offer "Boot inactive slot" (revert to
+    // stock if it holds a panda_breath image, or roll back to a previous DragonBreath
+    // version). null if the slot is empty/unreadable.
+    const esp_partition_t *inact = esp_ota_get_next_update_partition(NULL);
+    esp_app_desc_t idesc;
+    if (inact && esp_ota_get_partition_description(inact, &idesc) == ESP_OK) {
+        cJSON *is = cJSON_AddObjectToObject(o, "inactive_slot");
+        cJSON_AddStringToObject(is, "project", idesc.project_name);
+        cJSON_AddStringToObject(is, "version", idesc.version);
+        cJSON_AddStringToObject(is, "label", inact->label);
+    } else {
+        cJSON_AddNullToObject(o, "inactive_slot");
+    }
     cJSON *cap = cJSON_AddArrayToObject(o, "capabilities");
     cJSON_AddItemToArray(cap, cJSON_CreateString("power_on"));
     cJSON_AddItemToArray(cap, cJSON_CreateString("auto"));
@@ -1021,6 +1034,37 @@ static esp_err_t restart_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// POST /api/v2/boot-inactive — set the inactive OTA slot as the boot partition and
+// reboot into it: revert to stock (if that slot holds a panda_breath image) or roll
+// back to a previous DragonBreath version. What's in the slot is reported by
+// GET /api/v2/info (inactive_slot), so the UI can label the action. Auth-gated,
+// refused while heating. Only removes/redirects the boot pointer — no flash write.
+static esp_err_t boot_inactive_post(httpd_req_t *req)
+{
+    if (auth_reject(req)) return ESP_OK;
+    if (refuse_while_heating(req, "turn the heater off before switching firmware"))
+        return ESP_OK;
+    const esp_partition_t *inact = esp_ota_get_next_update_partition(NULL);
+    esp_app_desc_t d;
+    if (!inact || esp_ota_get_partition_description(inact, &d) != ESP_OK) {
+        api_error(req, "409 Conflict", "empty_slot",
+                  "the inactive slot has no bootable image", NULL);
+        return ESP_OK;
+    }
+    if (esp_ota_set_boot_partition(inact) != ESP_OK) {
+        api_error(req, "500 Internal Server Error", "set_boot_failed",
+                  "could not set the boot partition", NULL);
+        return ESP_OK;
+    }
+    ESP_LOGW(TAG, "boot-inactive: switching to %s (%s v%s) and rebooting",
+             inact->label, d.project_name, d.version);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_sendstr(req, "{\"ok\":true,\"message\":\"rebooting into inactive slot\"}");
+    xTaskCreate(ota_reboot_task, "db_bootother", 2048, NULL, 5, NULL);
+    return ESP_OK;
+}
+
 // POST /api/v2/factory-reset?confirm=factory-reset — auth-gated, refused while
 // heating, and requires the explicit confirm token (query or urlencoded body).
 // Erases every key in the app_nvs namespace (Wi-Fi creds, Moonraker host, control
@@ -1171,7 +1215,7 @@ esp_err_t pb_httpd_start(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.lru_purge_enable = true;
     cfg.uri_match_fn = httpd_uri_match_wildcard;   // lets pb_portal add a "/*" captive catch-all
-    cfg.max_uri_handlers = 27;                     // 25 used (+ /diag, /console, /api/v2/console) + spare
+    cfg.max_uri_handlers = 28;                     // + /diag, /console, /api/v2/console, /api/v2/boot-inactive
     // The OTA handler hashes the image (mbedtls) with a 1 KB read buffer + the
     // app descriptor on-stack, which overflows the 4 KB default httpd task stack
     // (stack-protection panic). Give it headroom.
@@ -1212,6 +1256,7 @@ esp_err_t pb_httpd_start(void)
     httpd_uri_t logs   = { .uri = "/api/v2/logs",      .method = HTTP_GET,  .handler = logs_get };
     httpd_uri_t cons   = { .uri = "/api/v2/console",   .method = HTTP_GET,  .handler = console_get };
     httpd_uri_t rst    = { .uri = "/api/v2/restart",   .method = HTTP_POST, .handler = restart_post };
+    httpd_uri_t booti  = { .uri = "/api/v2/boot-inactive", .method = HTTP_POST, .handler = boot_inactive_post };
     httpd_uri_t frst   = { .uri = "/api/v2/factory-reset", .method = HTTP_POST, .handler = factory_reset_post };
     httpd_uri_t tok    = { .uri = "/api/v2/token",     .method = HTTP_POST, .handler = token_post };
     httpd_uri_t calg   = { .uri = "/api/v2/calibration", .method = HTTP_GET,  .handler = calibration_get };
@@ -1228,6 +1273,7 @@ esp_err_t pb_httpd_start(void)
     httpd_register_uri_handler(s_server, &logs);
     httpd_register_uri_handler(s_server, &cons);
     httpd_register_uri_handler(s_server, &rst);
+    httpd_register_uri_handler(s_server, &booti);
     httpd_register_uri_handler(s_server, &frst);
     httpd_register_uri_handler(s_server, &tok);
     httpd_register_uri_handler(s_server, &calg);

@@ -10,8 +10,10 @@ routes require `X-DragonBreath-Auth`; the device does not enable CORS.
 ## Read-only routes
 
 - `GET /api/v2/info` — API version, stable device ID, per-boot ID, firmware,
-  capabilities, and `rref_kohm` (the resolved thermistor reference resistor — 82 on
-  V1.0.1, 33 on V1.0 — read once at boot from the strap).
+  capabilities, `rref_kohm` (the resolved thermistor reference resistor — 82 on
+  V1.0.1, 33 on V1.0 — read once at boot from the strap), and `inactive_slot`
+  (`{project, version, label}` of the other OTA slot, or `null` if empty/unreadable
+  — powers the "boot inactive slot" revert/rollback action).
 - `GET /api/v2/state` — full authoritative snapshot. Reading never refreshes a
   lease or otherwise changes device state.
 - `GET /api/v2/events` — Server-Sent Events. A `state` event is sent on connect
@@ -222,6 +224,12 @@ These predate/sit beside the versioned control surface and are stable:
 - `POST /api/v2/restart` — authenticated soft reboot. **Refused while the heater
   is armed/on** (HTTP 409 `heater_active`). Returns `{"ok":true}` then reboots
   once the response has flushed.
+- `POST /api/v2/boot-inactive` — authenticated. Sets the **inactive OTA slot** as the
+  boot partition and reboots into it — revert to stock (if that slot holds a
+  `panda_breath` image) or roll back to a previous DragonBreath version. Only moves
+  the boot pointer; **no flash write.** **Refused while the heater is armed/on** and
+  returns `409 empty_slot` if the inactive slot has no bootable image. See
+  `inactive_slot` on `/info` for what will boot.
 - `POST /api/v2/factory-reset` — authenticated. **Refused while heating.** Requires
   explicit confirmation `confirm=factory-reset` (query or urlencoded body) or it
   returns HTTP 400 `confirmation_required`. On confirm it erases the whole

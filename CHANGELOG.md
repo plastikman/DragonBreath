@@ -7,6 +7,17 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+- **"Boot inactive slot" (Settings → Maintenance).** Reboots into whatever firmware
+  is in the *other* OTA slot, showing its identity first (new `inactive_slot` field
+  on `/api/v2/info`): **revert to stock** when the slot holds a `panda_breath` image,
+  or **roll back** to a previous DragonBreath version. New auth-gated
+  `POST /api/v2/boot-inactive` (refused while heating; sets the boot partition and
+  reboots — no flash write). The row/button hide when the slot is empty/unreadable.
+  Note: the other slot holds the *last firmware OTA'd there*, so it's stock only until
+  the first DragonBreath self-update overwrites it; after that, use `/fw` + your
+  stock backup to revert.
+
 ### Fixed
 - **`/fw` no longer says you can't return to stock.** The firmware-update page's note
   claimed DragonBreath "does not restore the stock Panda firmware" and pointed to USB

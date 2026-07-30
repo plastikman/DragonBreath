@@ -776,6 +776,7 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
             <div><dt>Firmware</dt><dd id="s-fw">--</dd></div>
             <div><dt>Device ID</dt><dd id="s-devid">--</dd></div>
             <div><dt>Boot ID</dt><dd id="s-bootid">--</dd></div>
+            <div id="s-slot-row" hidden><dt>Inactive slot</dt><dd id="s-slot">--</dd></div>
           </dl>
           <div class="settings-links">
             <a class="btn" href="/fw"><svg class="icon"><use href="#i-download"/></svg> Firmware update</a>
@@ -784,7 +785,10 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
             <button class="btn" type="button" id="s-restart"><svg class="icon"><use href="#i-power"/></svg> Restart</button>
             <button class="btn btn-danger" type="button" id="s-factory"><svg class="icon"><use href="#i-alert"/></svg> Factory reset</button>
           </div>
-          <p class="set-note">Restart and factory reset are refused while the heater is on — turn it off first. Factory reset erases Wi-Fi credentials, the Moonraker host, the control token and the safety limits, then reboots to AP provisioning.</p>
+          <div class="set-row" id="s-bootslot-row" hidden style="margin-top:4px">
+            <button class="btn" type="button" id="s-bootslot"><svg class="icon"><use href="#i-refresh"/></svg> Boot inactive slot</button>
+          </div>
+          <p class="set-note">Restart and factory reset are refused while the heater is on — turn it off first. Factory reset erases Wi-Fi credentials, the Moonraker host, the control token and the safety limits, then reboots to AP provisioning. <b>Boot inactive slot</b> reboots into whatever firmware is in the other OTA slot (shown above) — use it to revert to stock or roll back a version.</p>
           <div class="mode-feedback" id="s-maint-msg" role="status" aria-live="polite"></div>
         </div>
       </section>
@@ -1507,6 +1511,16 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
       .then(function(){ localStorage.removeItem('db_tok'); flash('s-maint-msg', 'Factory reset done — rebooting to AP provisioning.', 'is-ok'); })
       .catch(function(j){ flash('s-maint-msg', 'Refused: '+((j&&(j.message||j.error))||'error'), 'is-error'); });
   });
+  /* Boot the inactive OTA slot (revert to stock / roll back a version). Auth-gated +
+     refused while heating on the device; the confirm names what it will boot. */
+  $('s-bootslot').addEventListener('click', function(){
+    var what = window.__slotDesc || 'the inactive slot';
+    if(!confirm('Reboot into '+what+'? The device boots whatever firmware is in the other OTA slot. Turn the heater off first; this browser may lose contact.')) return;
+    flash('s-maint-msg', 'Switching to '+what+'…');
+    request('/api/v2/boot-inactive', {})
+      .then(function(){ flash('s-maint-msg', 'Rebooting into '+what+' — reconnecting shortly.', 'is-ok'); })
+      .catch(function(j){ flash('s-maint-msg', 'Refused: '+((j&&(j.message||j.error))||'error'), 'is-error'); });
+  });
 
   /* Device info -> the Maintenance panel. (The old header brand/tooltip was
      removed; the firmware version is shown in the footer, populated in apply().) */
@@ -1515,6 +1529,16 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     if(i.firmware) u('s-fw', i.firmware);
     if(i.device_id) u('s-devid', i.device_id);
     if(i.boot_id) u('s-bootid', i.boot_id);
+    /* Inactive OTA slot: show what's there + offer to boot it (revert to stock, or
+       roll back a version). Hidden when the slot is empty/unreadable. */
+    var slot = i.inactive_slot;
+    if(slot && slot.project){
+      var isStock = slot.project === 'panda_breath';
+      window.__slotDesc = (isStock ? 'stock Panda' : slot.project) + ' ' + (slot.version||'');
+      u('s-slot', window.__slotDesc + (isStock ? ' — your way back to stock' : ''));
+      $('s-slot-row').hidden = false;
+      $('s-bootslot-row').hidden = false;
+    }
   }).catch(function(){});
 
   fetch('/api/v2/state', {cache:'no-store'})
