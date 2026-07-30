@@ -1,17 +1,14 @@
-# DragonBreath partition table — ESP32-C3, 4MB flash, dual-OTA.
+# DragonBreath partition table — matches the STOCK Panda Breath layout byte-for-byte
+# (confirmed identical on stock 1.0.3 AND 1.0.4). DragonBreath ships as an app that
+# installs and reverts through stock's OWN OTA, so the stock bootloader + partition
+# table + spiffs stay on the chip untouched. This table is used only for the
+# USB/recovery "factory" image and to size the app partition; PHY data is embedded
+# in the app (no phy_init partition, matching stock).
 #
-# TODO (before first flash): reconcile the flashing strategy.
-#   - If we KEEP the stock 2nd-stage bootloader, this table's offsets/layout must
-#     match what that bootloader expects, or we flash our own bootloader + table
-#     (full image) via the CH340K UART in download mode. The stock bootloader is
-#     NOT to be modified per project constraint; a full own-image flash replaces
-#     it wholesale and is the cleaner path. Verify before writing to hardware.
-#   - `nvs` is kept at the conventional offset; if we want to preserve/read stock
-#     NVS ("app_nvs" namespace) confirm the stock nvs offset/size and match it.
-#
-# Name,     Type, SubType, Offset,   Size
-nvs,        data, nvs,     0x9000,   0x6000,
-otadata,    data, ota,     0xf000,   0x2000,
-phy_init,   data, phy,     0x11000,  0x1000,
-ota_0,      app,  ota_0,   0x20000,  0x1D0000,
-ota_1,      app,  ota_1,   0x1F0000, 0x1D0000,
+# Name,     Type, SubType,  Offset,   Size
+nvs,        data, nvs,      0x9000,   0x5000,
+otadata,    data, ota,      0xe000,   0x2000,
+app0,       app,  ota_0,    0x10000,  0x1E0000,
+app1,       app,  ota_1,    0x1f0000, 0x1E0000,
+spiffs,     data, spiffs,   0x3d0000, 0x2F000,
+coredump,   data, coredump, 0x3ff000, 0x1000,

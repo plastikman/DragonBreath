@@ -34,12 +34,13 @@ import sys
 
 CHIP = "esp32c3"
 FLASH_SIZE = 0x400000  # 4 MB
-# DragonBreath image layout (matches build/flash_args / partitions.csv).
+# DragonBreath image layout — matches partitions.csv (stock Panda layout: otadata
+# @ 0xe000, app slot ota_0 @ 0x10000). This is the USB/recovery "factory" write.
 IMAGES = [
     ("0x0",      "bootloader/bootloader.bin"),
     ("0x8000",   "partition_table/partition-table.bin"),
-    ("0xf000",   "ota_data_initial.bin"),
-    ("0x20000",  "dragonbreath.bin"),
+    ("0xe000",   "ota_data_initial.bin"),
+    ("0x10000",  "dragonbreath.bin"),
 ]
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

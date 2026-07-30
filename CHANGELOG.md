@@ -7,6 +7,30 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [1.0.0-rc2] - 2026-07-30
+
+### Changed
+- **Canonical partition layout is now the stock Panda layout.** `partitions.csv`
+  matches stock byte-for-byte (app slots 1920 K @ 0x10000 / 0x1f0000, otadata @
+  0xe000, nvs 20 K, plus spiffs + coredump; `phy_init` dropped — PHY is embedded in
+  the app). DragonBreath now installs and reverts as a plain **app through stock's
+  own OTA**, leaving the stock bootloader / partition table / spiffs in place — which
+  is what makes the WiFi revert-to-Panda (rc1) reliable. Layout confirmed **identical
+  on stock 1.0.3 AND 1.0.4.**
+- **Releases are app-only.** Only the OTA app image (`dragonbreath-vX.Y.Z.bin`) +
+  `manifest.json` + `SHA256SUMS.txt` are published. The full/factory image and USB
+  install bundle are **no longer attached to releases** — the build machinery and
+  `tools/flash.py` stay in the repo for recovery/dev. Install via the stock updater;
+  USB is recovery-only.
+- `tools/flash.py` USB offsets updated to the stock layout (otadata @ 0xe000, app
+  slot @ 0x10000).
+
+### Upgrade note (alpha/beta testers — do this before 1.0)
+- If your unit was **USB-flashed** (native layout), **restore your stock backup
+  first, then install 1.0 via the stock updater.** A stock-layout install can't be
+  reached by OTA from a native-layout one; reverting to a clean stock baseline first
+  removes the variability.
+
 ## [1.0.0-rc1] - 2026-07-30
 
 ### Added
