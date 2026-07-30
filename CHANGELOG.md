@@ -7,6 +7,12 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+### Fixed
+- **`/fw` no longer says you can't return to stock.** The firmware-update page's note
+  claimed DragonBreath "does not restore the stock Panda firmware" and pointed to USB
+  — stale since rc1 (which made `/update` accept stock `panda_breath` images). It now
+  says you can upload your stock backup's **app** image on `/fw` to revert to Panda.
+
 ## [1.0.0-rc2] - 2026-07-30
 
 ### Changed
