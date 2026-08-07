@@ -44,14 +44,23 @@ static pb_ha_config_t           s_cfg    = {0};
 static pb_ha_status_t           s_status = { .state = PB_HA_DISABLED };
 static esp_mqtt_client_handle_t s_client = NULL;
 
+// Read-only mode: publish telemetry (sensors + state) but never subscribe to command
+// topics and never take a pb_policy lease — used when HA runs ALONGSIDE another
+// control source (Bambu/Klipper) purely as a monitor. Set once at start, before the
+// client connects, so it's effectively immutable while the client runs.
+static bool s_readonly = false;
+
 // Shared control state (guarded by s_lock).
 static bool               s_have_lease = false;
 static pb_policy_lease_t  s_lease      = {0};
 static float              s_desired_target = 45.0f;
 
-// Pacing (control task only).
+// Pacing (control task only). s_pub_pending is a lock-guarded request from the MQTT
+// callback (on connect) asking tick() to publish promptly — avoids the MQTT task
+// writing the control-task pacing clock directly (cross-task data race).
 static int64_t s_last_state_us = 0;
 static int64_t s_last_hb_us    = 0;
+static bool    s_pub_pending   = false;   // guarded by s_lock
 
 // Availability (LWT) topic — must outlive esp_mqtt_client_init(), so it's static.
 static char s_avail_topic[80] = {0};
@@ -166,28 +175,35 @@ static void publish_discovery(void)
 {
     const char *p = prefix();
     char buf[1024];
+    char topic[96];
 
-    // Climate entity (HA MQTT discovery, abbreviated keys). State fields are read
-    // from the single retained <p>/state JSON via templates.
-    int cfg = snprintf(buf, sizeof buf,
-        "{\"name\":\"DragonBreath\",\"uniq_id\":\"%s_climate\","
-        "\"avty_t\":\"%s/availability\","
-        "\"curr_temp_t\":\"%s/state\",\"curr_temp_tpl\":\"{{value_json.chamber}}\","
-        "\"temp_stat_t\":\"%s/state\",\"temp_stat_tpl\":\"{{value_json.target}}\","
-        "\"temp_cmd_t\":\"%s/temp/set\","
-        "\"mode_stat_t\":\"%s/state\",\"mode_stat_tpl\":\"{{value_json.mode}}\","
-        "\"mode_cmd_t\":\"%s/mode/set\","
-        // temp_unit "C": our target/current values on the state + command topics are
-        // Celsius. HA converts for display and converts a user's setpoint (e.g. °F on
-        // an imperial system) back to °C before publishing to temp_cmd_t.
-        "\"temp_unit\":\"C\","
-        "\"modes\":[\"off\",\"heat\"],\"min_temp\":20,\"max_temp\":70,\"temp_step\":1,"
-        "\"dev\":{\"ids\":[\"%s\"],\"name\":\"DragonBreath\",\"mdl\":\"Panda Breath\",\"mf\":\"DragonBreath\"}}",
-        p, p, p, p, p, p, p, p);
-    if (cfg > 0 && cfg < (int)sizeof buf) {
-        char topic[96];
-        snprintf(topic, sizeof topic, "homeassistant/climate/%s/config", p);
-        esp_mqtt_client_publish(s_client, topic, buf, 0, 1, 1);   // qos1, retain
+    // Climate entity (controllable thermostat) — only in full-control mode. In
+    // read-only mode we publish an EMPTY retained payload to the same config topic so
+    // HA removes any thermostat left over from a previous full-control session (no
+    // dead buttons); the device just reports via sensors below.
+    snprintf(topic, sizeof topic, "homeassistant/climate/%s/config", p);
+    if (s_readonly) {
+        esp_mqtt_client_publish(s_client, topic, "", 0, 1, 1);   // clear retained config
+    } else {
+        // Climate entity (HA MQTT discovery, abbreviated keys). State fields are read
+        // from the single retained <p>/state JSON via templates.
+        int cfg = snprintf(buf, sizeof buf,
+            "{\"name\":\"DragonBreath\",\"uniq_id\":\"%s_climate\","
+            "\"avty_t\":\"%s/availability\","
+            "\"curr_temp_t\":\"%s/state\",\"curr_temp_tpl\":\"{{value_json.chamber}}\","
+            "\"temp_stat_t\":\"%s/state\",\"temp_stat_tpl\":\"{{value_json.target}}\","
+            "\"temp_cmd_t\":\"%s/temp/set\","
+            "\"mode_stat_t\":\"%s/state\",\"mode_stat_tpl\":\"{{value_json.mode}}\","
+            "\"mode_cmd_t\":\"%s/mode/set\","
+            // temp_unit "C": our target/current values on the state + command topics are
+            // Celsius. HA converts for display and converts a user's setpoint (e.g. °F on
+            // an imperial system) back to °C before publishing to temp_cmd_t.
+            "\"temp_unit\":\"C\","
+            "\"modes\":[\"off\",\"heat\"],\"min_temp\":20,\"max_temp\":70,\"temp_step\":1,"
+            "\"dev\":{\"ids\":[\"%s\"],\"name\":\"DragonBreath\",\"mdl\":\"Panda Breath\",\"mf\":\"DragonBreath\"}}",
+            p, p, p, p, p, p, p, p);
+        if (cfg > 0 && cfg < (int)sizeof buf)
+            esp_mqtt_client_publish(s_client, topic, buf, 0, 1, 1);   // qos1, retain
     }
 
     // Chamber temperature sensor.
@@ -197,11 +213,8 @@ static void publish_discovery(void)
         "\"val_tpl\":\"{{value_json.chamber}}\",\"unit_of_meas\":\"\xC2\xB0""C\","
         "\"dev_cla\":\"temperature\",\"dev\":{\"ids\":[\"%s\"]}}",
         p, p, p, p);
-    {
-        char topic[96];
-        snprintf(topic, sizeof topic, "homeassistant/sensor/%s_chamber/config", p);
-        esp_mqtt_client_publish(s_client, topic, buf, 0, 1, 1);
-    }
+    snprintf(topic, sizeof topic, "homeassistant/sensor/%s_chamber/config", p);
+    esp_mqtt_client_publish(s_client, topic, buf, 0, 1, 1);
 
     // Element (PTC) temperature sensor.
     snprintf(buf, sizeof buf,
@@ -210,9 +223,27 @@ static void publish_discovery(void)
         "\"val_tpl\":\"{{value_json.ptc}}\",\"unit_of_meas\":\"\xC2\xB0""C\","
         "\"dev_cla\":\"temperature\",\"dev\":{\"ids\":[\"%s\"]}}",
         p, p, p, p);
-    {
-        char topic[96];
-        snprintf(topic, sizeof topic, "homeassistant/sensor/%s_ptc/config", p);
+    snprintf(topic, sizeof topic, "homeassistant/sensor/%s_ptc/config", p);
+    esp_mqtt_client_publish(s_client, topic, buf, 0, 1, 1);
+
+    // Read-only mode has no controllable thermostat, so surface target + mode as
+    // plain sensors too (so HA still sees the setpoint the active source is driving).
+    if (s_readonly) {
+        snprintf(buf, sizeof buf,
+            "{\"name\":\"DragonBreath Target\",\"uniq_id\":\"%s_target\","
+            "\"avty_t\":\"%s/availability\",\"stat_t\":\"%s/state\","
+            "\"val_tpl\":\"{{value_json.target}}\",\"unit_of_meas\":\"\xC2\xB0""C\","
+            "\"dev_cla\":\"temperature\",\"dev\":{\"ids\":[\"%s\"]}}",
+            p, p, p, p);
+        snprintf(topic, sizeof topic, "homeassistant/sensor/%s_target/config", p);
+        esp_mqtt_client_publish(s_client, topic, buf, 0, 1, 1);
+
+        snprintf(buf, sizeof buf,
+            "{\"name\":\"DragonBreath Mode\",\"uniq_id\":\"%s_mode\","
+            "\"avty_t\":\"%s/availability\",\"stat_t\":\"%s/state\","
+            "\"val_tpl\":\"{{value_json.mode}}\",\"dev\":{\"ids\":[\"%s\"]}}",
+            p, p, p, p);
+        snprintf(topic, sizeof topic, "homeassistant/sensor/%s_mode/config", p);
         esp_mqtt_client_publish(s_client, topic, buf, 0, 1, 1);
     }
 }
@@ -249,16 +280,19 @@ static void mqtt_event_handler(void *args, esp_event_base_t base, int32_t id, vo
         xSemaphoreTake(s_lock, portMAX_DELAY);
         s_status.state = PB_HA_CONNECTED;
         s_status.connected = true;
+        s_pub_pending = true;   // ask tick() to publish state promptly (no cross-task write)
         xSemaphoreGive(s_lock);
-        // Availability online (retained), discovery, then subscribe commands.
+        // Availability online (retained) + discovery. In full-control mode also
+        // subscribe the command topics; read-only mode never accepts commands.
         esp_mqtt_client_publish(s_client, s_avail_topic, "online", 0, 1, 1);
         publish_discovery();
-        char sub[80];
-        snprintf(sub, sizeof sub, "%s/mode/set", prefix());
-        esp_mqtt_client_subscribe(s_client, sub, 1);
-        snprintf(sub, sizeof sub, "%s/temp/set", prefix());
-        esp_mqtt_client_subscribe(s_client, sub, 1);
-        s_last_state_us = 0;   // force an immediate state publish on next tick
+        if (!s_readonly) {
+            char sub[80];
+            snprintf(sub, sizeof sub, "%s/mode/set", prefix());
+            esp_mqtt_client_subscribe(s_client, sub, 1);
+            snprintf(sub, sizeof sub, "%s/temp/set", prefix());
+            esp_mqtt_client_subscribe(s_client, sub, 1);
+        }
         break;
     }
     case MQTT_EVENT_DISCONNECTED:
@@ -278,7 +312,7 @@ static void mqtt_event_handler(void *args, esp_event_base_t base, int32_t id, vo
 
 // ---------- lifecycle ----------
 
-esp_err_t pb_ha_start(void)
+static esp_err_t ha_start_common(void)
 {
     if (s_lock != NULL) return ESP_ERR_INVALID_STATE;
     s_lock = xSemaphoreCreateMutex();
@@ -326,9 +360,17 @@ esp_err_t pb_ha_start(void)
         return err;
     }
     s_status.state = PB_HA_CONNECTING;
-    ESP_LOGI(TAG, "connecting to broker %s (prefix '%s')", uri, prefix());
+    ESP_LOGI(TAG, "connecting to broker %s (prefix '%s'%s)", uri, prefix(),
+             s_readonly ? ", read-only" : "");
     return ESP_OK;
 }
+
+// Full-control: HA is the selected control source (subscribes commands, holds a lease).
+esp_err_t pb_ha_start(void) { s_readonly = false; return ha_start_common(); }
+
+// Read-only: HA runs ALONGSIDE another control source as a monitor — publishes
+// sensors + state, never subscribes commands, never takes a pb_policy lease.
+esp_err_t pb_ha_start_readonly(void) { s_readonly = true; return ha_start_common(); }
 
 void pb_ha_tick(void)
 {
@@ -336,11 +378,13 @@ void pb_ha_tick(void)
     bool connected;
     xSemaphoreTake(s_lock, portMAX_DELAY);
     connected = s_status.connected;
+    bool pub_now = s_pub_pending;
+    s_pub_pending = false;
     xSemaphoreGive(s_lock);
     if (!connected) return;
 
     int64_t now = esp_timer_get_time();
-    if (now - s_last_state_us >= STATE_PERIOD_US) {
+    if (pub_now || now - s_last_state_us >= STATE_PERIOD_US) {
         s_last_state_us = now;
         publish_state();
     }
@@ -350,7 +394,7 @@ void pb_ha_tick(void)
     bool do_hb = false;
     pb_policy_lease_t lease = {0};
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    if (s_have_lease && now - s_last_hb_us >= HB_PERIOD_US) {
+    if (!s_readonly && s_have_lease && now - s_last_hb_us >= HB_PERIOD_US) {
         lease = s_lease;
         s_last_hb_us = now;
         do_hb = true;

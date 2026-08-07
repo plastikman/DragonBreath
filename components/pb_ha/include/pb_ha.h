@@ -33,6 +33,12 @@ typedef struct {
 
 esp_err_t pb_ha_start(void);
 
+// Start HA in READ-ONLY mode: publishes MQTT-Discovery sensors + a retained state
+// topic (chamber/element temp, target, mode) but never subscribes command topics and
+// never takes a pb_policy lease. Used when HA runs ALONGSIDE another control source
+// (Bambu/Klipper) purely as a monitor. Mutually exclusive with pb_ha_start().
+esp_err_t pb_ha_start_readonly(void);
+
 // Periodic pump: publishes retained state (~2 s) and heartbeats the heat lease
 // (~5 s, well under the comms-watchdog minimum). Call from the control loop when
 // HA is the active source. No-op if the client isn't running.

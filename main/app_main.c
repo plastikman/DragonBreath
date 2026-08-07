@@ -214,10 +214,9 @@ static void control_task(void *arg)
                 }
                 break;
             case DC_SRC_HA:
-                // HA is a controller, not a bed source — no AUTO follow. Pump the
-                // HA client (retained state publish + heat-lease heartbeat); it
-                // drives target/mode through pb_policy directly.
-                if (s_ha_up) pb_ha_tick();
+                // HA is a controller, not a bed source — no AUTO follow. It drives
+                // target/mode through pb_policy directly. Pumped below (s_ha_up),
+                // which also covers HA running read-only alongside another source.
                 break;
             case DC_SRC_KLIPPER_MQTT:
                 // Klipper-over-MQTT is also a controller (not a bed source): Klipper
@@ -239,6 +238,10 @@ static void control_task(void *arg)
             }
         }
         pb_policy_set_env(bed_c, bed_target_c, src_connected, src_target_c);
+        // Home Assistant: pump the client whenever it's up — full-control when HA is
+        // the selected source, or read-only when it runs alongside another source
+        // (Bambu/Klipper) as a monitor. pb_ha_tick() no-ops until connected.
+        if (s_ha_up) pb_ha_tick();
 #endif
 
         // Safety/control loop: enforces every heater cutoff + fan-follows-heater.
@@ -427,6 +430,27 @@ void app_main(void)
         break;
     }
     ESP_LOGI(TAG, "control source: %s", dc_source_str(s_src));
+    // Home Assistant read-only telemetry alongside a non-HA control source: if an HA
+    // broker is configured but HA is NOT the selected source, start pb_ha in read-only
+    // monitor mode (publishes sensors + state, never controls). When HA *is* the
+    // source it already started above in full-control mode.
+    if (s_src != DC_SRC_HA) {
+        size_t sz = 0;
+        bool ha_cfg = false;
+        nvs_handle_t hh;
+        if (nvs_open("app_nvs", NVS_READONLY, &hh) == ESP_OK) {
+            ha_cfg = (nvs_get_str(hh, "ha_host", NULL, &sz) == ESP_OK && sz > 1);
+            nvs_close(hh);
+        }
+        if (ha_cfg) {
+            if ((e = pb_ha_start_readonly()) != ESP_OK)
+                ESP_LOGE(TAG, "pb_ha_start_readonly: %s (continuing; no HA telemetry)", esp_err_to_name(e));
+            else {
+                s_ha_up = true;
+                ESP_LOGI(TAG, "Home Assistant read-only telemetry enabled alongside %s", dc_source_str(s_src));
+            }
+        }
+    }
     if ((e = pb_httpd_start()) != ESP_OK)
         ESP_LOGE(TAG, "pb_httpd_start: %s (continuing)", esp_err_to_name(e));
     else if ((e = pb_portal_start()) != ESP_OK)   // portal needs the httpd handle
