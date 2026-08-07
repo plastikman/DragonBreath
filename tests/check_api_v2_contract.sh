@@ -32,6 +32,15 @@ for field in '"schema"' '"product"' '"display_name"'; do
     }
 done
 
+# These product-surface capabilities drive dc_ui's runtime page gating. Keep the
+# producer side explicit so the shared SPA path is exercised by DragonBreath.
+for capability in power_on auto drying; do
+    grep -q "cJSON_CreateString(\"$capability\")" "$httpd" || {
+        echo "api v2 info is missing shared-SPA capability: $capability" >&2
+        exit 1
+    }
+done
+
 if grep -Eq '\.uri = "/(status|target|heartbeat|reset)"' "$httpd"; then
     echo "alpha API route was reintroduced" >&2
     exit 1
@@ -50,6 +59,7 @@ grep -q 'id="a-action"' "$portal"                    # Automatic: primary action
 grep -q 'id="d-action"' "$portal"                    # Dry: primary action present
 grep -q 'id="a-msg"' "$portal"                       # Automatic: command feedback line present
 grep -q 'id="d-msg"' "$portal"                       # Dry: command feedback line present
+grep -q 'if(ui.schema!=null && ui.schema!==1) return' "$portal" # unknown UI schema degrades safely
 grep -q "command('auto', {target_c:fields.autoT.val" "$portal"         # auto sends the user's target+threshold
 grep -q "command('drying_start', {target_c:fields.dryT.val" "$portal"  # dry sends the user's target+hours
 grep -q "Rejected: '+" "$portal"                     # command rejection surfaced to the user

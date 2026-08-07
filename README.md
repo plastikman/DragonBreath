@@ -123,8 +123,10 @@ python3 tools/flash.py --restore backups/stock-YYYYmmdd-HHMMSS.bin    # full USB
 
 **Shared-core boundary:** board-agnostic infrastructure is consumed from the pinned
 [`dragon-core`](https://github.com/justinh-rahb/dragon-core) revision declared in
-[`main/idf_component.yml`](main/idf_component.yml). DragonBreath keeps the board map,
-sensors, heater/fan actuation, safety policy, HTTP API, portal, LEDs, buttons, and UI.
+[`main/idf_component.yml`](main/idf_component.yml). The editable dashboard SPA is
+supplied by dragon-core's `dc_ui`; DragonBreath keeps the board map, sensors,
+heater/fan actuation, safety policy, product-specific API handlers, setup/OTA portal,
+LEDs, and buttons.
 The OpenVent-to-DragonBreath-to-dragon-core history and MIT provenance are recorded in
 [VENDORING.md](VENDORING.md).
 
@@ -311,8 +313,8 @@ docs/          hardware map, safety model, HIL guide, NTC RE report
 ```
 
 Managed components fetched from `dragon-core` are `dc_evlog`, `dc_source`,
-`dc_bambu`, `dc_wifi`, and `dc_moonraker`; they are not stored under this repository's
-`components/` directory.
+`dc_bambu`, `dc_wifi`, `dc_moonraker`, and `dc_ui`; they are not stored under this
+repository's `components/` directory.
 
 ## Credits
 Hardware + firmware reverse-engineering builds on the BTT Panda Breath work in
