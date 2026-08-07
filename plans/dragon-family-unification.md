@@ -16,8 +16,8 @@ As of 2026-08-07:
 - [`justinh-rahb/dragon-core`](https://github.com/justinh-rahb/dragon-core) exists and
   uses the family-neutral `dc_` / `DC_` namespace.
 - DragonBreath #68 extracted `dc_evlog`, `dc_source`, `dc_bambu`, `dc_wifi`, and
-  `dc_moonraker`. DragonBreath consumes all five through ESP-IDF Component Manager
-  manifests pinned to dragon-core commit `ec44eb4`.
+  `dc_moonraker`. The shared-SPA follow-on adds `dc_ui`; DragonBreath consumes all six
+  through ESP-IDF Component Manager manifests pinned to one dragon-core revision.
 - The extraction preserved NVS namespaces, keys, and persisted enum values. Existing
   Wi-Fi, Moonraker, Bambu, and control-source configuration survives the upgrade.
 - DragonBreath's product-local policy command-origin enum now uses `db_source_t` and
@@ -26,10 +26,13 @@ As of 2026-08-07:
 - DragonBreath #68 passed host tests, its ESP-IDF CI build, and the complete safe
   ESP32-C3 devboard HIL suite: 3 scenarios, 66 steps, 0 failures, with Panda mains
   GPIO/ADC backends compiled out.
-- dragon-core has a provisional annotated `v0.1.0` tag at `9b7db48`. Its CI runs the
-  Bambu host parser tests and compiles/links all five components together with
-  ESP-IDF 5.3 for ESP32-C3. The component sources at the tag are unchanged from the
-  revision currently pinned by DragonBreath.
+- dragon-core has annotated `v0.1.0` and `v0.1.1` tags. Its CI runs the Bambu parser
+  and family-SPA checks and compiles/links every shared component together with
+  ESP-IDF 5.3 for ESP32-C3.
+- The shared-SPA follow-on adds `dc_ui`: dragon-core owns the editable HTML and
+  reproducible gzip asset, while DragonBreath keeps its HTTP, setup, OTA, and product
+  policy handlers. `/api/v2/info` now supplies an additive UI schema/product descriptor,
+  and the SPA gates optional Manual/Auto/Dry surfaces from runtime capabilities.
 
 The first extraction did **not** require HTTP or UI decoupling. That work remains the
 prerequisite for moving the HTTP/OTA/portal/shared-SPA layer into dragon-core; see
@@ -75,6 +78,7 @@ The landed core owns:
 | `dc_bambu` | Bambu LAN MQTT status client |
 | `dc_wifi` | Wi-Fi, provisioning, scanning, and mDNS with product identity input |
 | `dc_moonraker` | Moonraker WebSocket client and Klipper status |
+| `dc_ui` | Embedded family SPA asset and capability-aware browser shell |
 
 Candidate follow-on modules include HTTP/OTA, the portal and shared SPA, discovery and
 group management, and reusable RGB LED behavior. A candidate moves to core only after
@@ -123,15 +127,16 @@ every device found on the subnet.
 
 1. **Initial core extraction — complete.** dragon-core stood up; five components
    extracted; DragonBreath #68 merged after CI and hardware HIL.
-2. **MQTT-Klipper coordination.** Land #68 first (done), then add
-   `DC_SRC_KLIPPER_MQTT = 4` to dragon-core while preserving `DC_SRC_NONE = 3`, add an
-   exclusive `DC_SRC_MAX` range bound, and rebase DragonBreath #67 onto the `dc_*` API.
+2. **MQTT-Klipper coordination — complete.** `DC_SRC_KLIPPER_MQTT = 4` landed in
+   dragon-core while preserving `DC_SRC_NONE = 3`, with an exclusive `DC_SRC_MAX`;
+   DragonBreath #67 was rebased onto the `dc_*` API and merged.
 3. **Finish product source namespacing.** Migrate remaining DragonBreath-owned
    `pb_*`/`PB_*` identifiers to `db_*`/`DB_*` in a focused change. New app code uses
    `db_*` immediately; persisted and wire identifiers remain compatible.
-4. **Decouple and extract the web layer.** Add golden response coverage, introduce the
-   product capability boundary, then move reusable HTTP/OTA/portal/shared-SPA pieces
-   into dragon-core without changing API v2 or recovery semantics.
+4. **Decouple and extract the web layer — in progress.** The static SPA asset and its
+   runtime product/capability selection move first as `dc_ui`; DragonBreath continues
+   to own the existing API v2, HTTP, OTA, setup, and recovery handlers. Add golden
+   response coverage and the product capability boundary before moving those handlers.
 5. **DragonVent.** Create a fresh firmware repository on dragon-core, with `dv_*`
    board/motor/device code. Archive OpenVent with a pointer after replacement hardware
    behavior is proven.

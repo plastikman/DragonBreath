@@ -20,6 +20,13 @@ After #68:
 - The existing SPA remains product-local. The family direction is one browser SPA that
   carries sibling-product views and selects them from runtime capabilities.
 
+The first asset-only slice is now implemented on the shared-SPA feature branches:
+dragon-core `dc_ui` owns the editable SPA and embedded gzip bytes, DragonBreath serves
+that asset through its unchanged product-local portal, and `/api/v2/info` supplies an
+additive schema/product/display-name descriptor. HTTP, OTA, setup, recovery, and
+hardware policy remain local; moving them still requires the response/device boundary
+described below.
+
 This means HTTP decoupling is no longer on the critical path for **creating**
 dragon-core. It is on the critical path for extracting the web and management layer.
 
@@ -117,11 +124,12 @@ and should not silently group every device found on the LAN.
 2. **Introduce the product interface locally.** Move DragonBreath-specific state,
    command, and calibration behavior behind `db_device` while the transport remains in
    the DragonBreath repository.
-3. **Separate portal assets.** Keep editable HTML/SPA assets out of C string literals
-   and retain the existing ESP-IDF + gzip embedding flow; do not require a Node build
-   toolchain for firmware.
-4. **Add runtime capabilities.** Express the existing DragonBreath UI and sketches for
-   DragonVent/DragonStatus before freezing the contract.
+3. **Separate portal assets — implemented by `dc_ui`.** Keep editable HTML/SPA assets
+   out of C string literals and retain the existing ESP-IDF + gzip embedding flow; do
+   not require a Node build toolchain for firmware.
+4. **Add runtime capabilities — foundation implemented.** DragonBreath publishes UI
+   schema/product identity and the existing capability array gates current surfaces.
+   Add DragonVent/DragonStatus views before freezing the wider contract.
 5. **Extract reusable web components.** Move only proven product-neutral HTTP/OTA,
    portal, and SPA pieces into dragon-core, then pin all products to the same tested
    core release.

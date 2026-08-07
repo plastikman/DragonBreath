@@ -6,6 +6,7 @@
 #include "dc_source.h"
 #include "dc_moonraker.h"
 #include "dc_bambu.h"
+#include "dc_ui.h"
 #include "pb_ha.h"
 #include "db_klipper_mqtt.h"
 #include "freertos/FreeRTOS.h"
@@ -27,13 +28,6 @@
 static const char *TAG = "pb_portal";
 #define NVS_NS "app_nvs"
 
-// STA-mode dashboard: the gzip of components/pb_portal/www/app.html, embedded
-// into flash rodata at build time (see CMakeLists.txt target_add_binary_data).
-// Served verbatim as a single Content-Encoding: gzip response.
-// cppcheck-suppress syntaxError  // GNU asm() label on an extern decl (embedded
-// binary symbol) is valid GCC; cppcheck's C parser does not model it.
-extern const uint8_t app_html_gz_start[] asm("_binary_app_html_gz_start");
-extern const uint8_t app_html_gz_end[]   asm("_binary_app_html_gz_end");
 // 32x32 PNG of the DragonBreath dragon mark, embedded from www/favicon.png (see
 // CMakeLists.txt). Served at /favicon.ico so the browser's automatic favicon fetch
 // gets a real icon instead of the SPA HTML from the "/*" catch-all.
@@ -126,7 +120,7 @@ static void html_attr_escape(const char *in, char *out, size_t outsz)
 }
 
 // ---- static page pieces ----
-// Palette + dragon mark matching the STA-mode SPA (app.html): the same light-dark()
+// Palette + dragon mark matching the STA-mode SPA (dc_ui): the same light-dark()
 // tokens, so /setup, /fw, and the AP captive portal read as the same product in
 // BOTH light and dark (following the device theme, or a pinned dashboard choice via
 // localStorage db_theme). PAGE_HEAD is the shared head + CSS + <body>; PAGE_HDR is
@@ -138,7 +132,7 @@ static const char PAGE_HEAD[] =
     "<meta name=color-scheme content='light dark'><meta name=referrer content=no-referrer>"
     "<link rel=icon href=/favicon.ico>"
     "<title>DragonBreath</title><style>"
-    // Shares the dashboard's light-dark() token values (app.html) so /setup, /fw
+    // Shares the dashboard's light-dark() token values (dc_ui SPA) so /setup, /fw
     // and the captive portal match the app in both themes. Keeps the portal's own
     // variable NAMES so the component CSS below is unchanged. Follows the device
     // theme by default; a pinned dashboard choice (localStorage db_theme) is
@@ -353,20 +347,14 @@ static void send_version_inject(httpd_req_t *req)
 }
 
 // ---- handlers ----
-// Live dashboard SPA (root in STA mode). The embedded gzip of www/app.html is
-// sent verbatim as a single Content-Encoding: gzip response — the whole shell +
-// Dashboard, self-contained (inline icons/CSS/JS, no external requests). It binds
-// itself to the v2 API at runtime (GET /api/v2/state + /api/v2/events); nothing is
-// templated server-side.
+// Live Dragon-family SPA (root in STA mode). dc_ui owns the reproducible gzip
+// asset; this product portal owns only the HTTP response and existing routes.
 static esp_err_t app_page(httpd_req_t *req)
 {
-    // start/end are the linker-provided bounds of ONE embedded blob
-    // (target_add_binary_data), so end-start is its length — not UB.
-    // cppcheck-suppress comparePointers
-    const size_t len = (size_t)(app_html_gz_end - app_html_gz_start);
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    return httpd_resp_send(req, (const char *)app_html_gz_start, len);
+    dc_ui_asset_t asset = dc_ui_spa_asset();
+    httpd_resp_set_type(req, asset.content_type);
+    httpd_resp_set_hdr(req, "Content-Encoding", asset.content_encoding);
+    return httpd_resp_send(req, (const char *)asset.data, asset.len);
 }
 
 // Dedicated firmware-update page (GET /fw).
@@ -763,7 +751,7 @@ static esp_err_t config_page(httpd_req_t *req)
 // Browser-tab favicon (GET /favicon.ico). Serves the embedded 32x32 PNG of the
 // dragon mark as image/png. Registered before the "/*" catch-all so the browser's
 // automatic /favicon.ico request never falls through to the SPA HTML. The inline
-// SVG <link> in app.html's <head> provides the crisp, theme-adaptive icon for
+// SVG <link> in the dc_ui SPA's <head> provides the crisp, theme-adaptive icon for
 // browsers that honor it; this PNG is the universal fallback.
 static esp_err_t favicon_ico(httpd_req_t *req)
 {

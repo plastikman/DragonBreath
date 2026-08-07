@@ -91,11 +91,6 @@ jobs:
             $INCS \
             components/ main/
 
-      - name: Check API v2 contract and dashboard ownership
-        run: |
-          sh tests/check_api_v2_contract.sh
-          node tests/check_dashboard_js.mjs
-
       # E1 warnings-as-errors: enforced inside the build itself — the top-level
       # CMakeLists applies `-Wall -Wextra -Werror` PRIVATE to every first-party pb_*
       # component (never to ESP-IDF's own code). The default + HIL builds here and
@@ -113,6 +108,10 @@ jobs:
           esp_idf_version: v5.3
           target: esp32c3
           path: '.'
+
+      - name: Check API v2 contract and shared dashboard ownership
+        run: |
+          sh tests/check_api_v2_contract.sh
 
       - name: Build safe dev-board HIL profile (ESP-IDF v5.3)
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1

@@ -15,9 +15,10 @@ into DragonBreath's `components/` directory.
 | `dc_moonraker` | OpenVent `pv_moonraker` via DragonBreath `pb_moonraker` | Moonraker WebSocket client |
 | `dc_source` | DragonBreath `pb_source` | persisted control-source selection |
 | `dc_bambu` | DragonBreath `pb_bambu` | Bambu LAN MQTT client and printer status |
+| `dc_ui` | DragonBreath dashboard SPA | embedded family UI asset and capability gating |
 
 DragonBreath retains its product-specific board, sensor, actuator, safety-policy,
-HTTP API, portal, LED, button, Home Assistant, and HIL components.
+HTTP API, setup/OTA portal, LED, button, Home Assistant, and HIL components.
 
 ## OpenVent lineage
 
