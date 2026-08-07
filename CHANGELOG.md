@@ -14,6 +14,15 @@ below into the GitHub Release notes.
   [`justinh-rahb/dragon-core`](https://github.com/justinh-rahb/dragon-core)
   dependency under the product-neutral `dc_*` namespace. Existing NVS namespaces
   and keys are preserved across the move.
+- **Dashboard UI extracted to `dragon-core` (`dc_ui`).** The STA-mode single-page
+  dashboard now comes from the pinned `dc_ui` component — a capability-aware, shared
+  Dragon-family SPA served as a reproducible embedded gzip — instead of a local
+  `pb_portal/www/app.html` gzipped at build time. The portal owns only the HTTP
+  response and routes; `/setup`, `/fw`, OTA/recovery, auth, and favicon stay
+  product-local. Adds an additive **`GET /api/v2/info` → `ui` descriptor**
+  (`schema` / `product` / `display_name`) so the shared SPA adapts per product;
+  older firmware without it is handled by the SPA's compatibility fallback. No
+  change to existing API routes/fields, NVS, or OTA/recovery behavior.
 
 ## [1.0.4] - 2026-08-06
 

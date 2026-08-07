@@ -32,6 +32,12 @@ routes require `X-DragonBreath-Auth`; the device does not enable CORS.
 `dragonbreath`, or `panda_breath` on a reverted slot). The **configured control
 source** is reported on `/api/v2/state` (`environment.control_source`), not here.
 
+`GET /api/v2/info` additionally returns a `ui` object —
+`{"schema":1,"product":"dragonbreath","display_name":"DragonBreath"}` — that lets
+the shared `dc_ui` single-page dashboard (vendored from dragon-core) identify the
+product and adapt its capability gating. It is additive; firmware that predates it
+is handled by the SPA's compatibility fallback.
+
 The complete snapshot, not locally remembered intent, is the source of truth:
 
 ```json

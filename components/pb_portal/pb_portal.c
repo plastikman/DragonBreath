@@ -120,7 +120,7 @@ static void html_attr_escape(const char *in, char *out, size_t outsz)
 }
 
 // ---- static page pieces ----
-// Palette + dragon mark matching the STA-mode SPA (app.html): the same light-dark()
+// Palette + dragon mark matching the STA-mode SPA (dc_ui): the same light-dark()
 // tokens, so /setup, /fw, and the AP captive portal read as the same product in
 // BOTH light and dark (following the device theme, or a pinned dashboard choice via
 // localStorage db_theme). PAGE_HEAD is the shared head + CSS + <body>; PAGE_HDR is
@@ -132,7 +132,7 @@ static const char PAGE_HEAD[] =
     "<meta name=color-scheme content='light dark'><meta name=referrer content=no-referrer>"
     "<link rel=icon href=/favicon.ico>"
     "<title>DragonBreath</title><style>"
-    // Shares the dashboard's light-dark() token values (app.html) so /setup, /fw
+    // Shares the dashboard's light-dark() token values (dc_ui SPA) so /setup, /fw
     // and the captive portal match the app in both themes. Keeps the portal's own
     // variable NAMES so the component CSS below is unchanged. Follows the device
     // theme by default; a pinned dashboard choice (localStorage db_theme) is
@@ -751,7 +751,7 @@ static esp_err_t config_page(httpd_req_t *req)
 // Browser-tab favicon (GET /favicon.ico). Serves the embedded 32x32 PNG of the
 // dragon mark as image/png. Registered before the "/*" catch-all so the browser's
 // automatic /favicon.ico request never falls through to the SPA HTML. The inline
-// SVG <link> in app.html's <head> provides the crisp, theme-adaptive icon for
+// SVG <link> in the dc_ui SPA's <head> provides the crisp, theme-adaptive icon for
 // browsers that honor it; this PNG is the universal fallback.
 static esp_err_t favicon_ico(httpd_req_t *req)
 {
