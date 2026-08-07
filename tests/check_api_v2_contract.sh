@@ -3,12 +3,31 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 httpd="$root/components/pb_httpd/pb_httpd.c"
-# The dashboard/control UI now lives in the embedded SPA, not a C string.
-portal="$root/components/pb_portal/www/app.html"
+# The dashboard/control UI is supplied by the pinned dragon-core dc_ui component.
+portal="${DC_UI_HTML:-}"
+if [ -z "$portal" ]; then
+    for candidate in \
+        "$root/managed_components/dc_ui/www/app.html" \
+        "$root/../dragon-core/components/dc_ui/www/app.html"
+    do
+        if [ -f "$candidate" ]; then portal="$candidate"; break; fi
+    done
+fi
+if [ ! -f "$portal" ]; then
+    echo "dc_ui SPA not found; run the ESP-IDF dependency build first" >&2
+    exit 1
+fi
 
 for route in info state command heartbeat events health; do
     grep -q "\"/api/v2/$route\"" "$httpd" || {
         echo "missing API v2 route: $route" >&2
+        exit 1
+    }
+done
+
+for field in '"schema"' '"product"' '"display_name"'; do
+    grep -q "$field" "$httpd" || {
+        echo "api v2 info is missing shared-SPA descriptor field: $field" >&2
         exit 1
     }
 done

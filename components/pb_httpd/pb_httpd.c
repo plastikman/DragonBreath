@@ -285,6 +285,10 @@ static esp_err_t info_get(httpd_req_t *req)
     cJSON_AddStringToObject(o, "boot_id", s_boot_id);
     cJSON_AddStringToObject(o, "firmware", esp_app_get_description()->version);
     cJSON_AddStringToObject(o, "project", esp_app_get_description()->project_name);
+    cJSON *ui = cJSON_AddObjectToObject(o, "ui");
+    cJSON_AddNumberToObject(ui, "schema", 1);
+    cJSON_AddStringToObject(ui, "product", "dragonbreath");
+    cJSON_AddStringToObject(ui, "display_name", "DragonBreath");
     // Divider reference resistor resolved from the GPIO19 strap (diagnostic): 82 or
     // 33 kOhm; a board whose strap floats comes up at the fail-safe 33 kOhm default.
     cJSON_AddNumberToObject(o, "rref_kohm", pb_ntc_rref_kohm());

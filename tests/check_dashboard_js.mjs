@@ -1,10 +1,15 @@
 import fs from "node:fs";
 
-// The dashboard/control UI is now the embedded SPA (app.html), not a C string.
-const html = fs.readFileSync(
-  new URL("../components/pb_portal/www/app.html", import.meta.url),
-  "utf8",
-);
+// The dashboard/control UI is owned by dragon-core. In CI the ESP-IDF build
+// materializes the pinned component under managed_components; sibling checkouts are
+// convenient for local development before that build has run.
+const candidates = [
+  new URL("../managed_components/dc_ui/www/app.html", import.meta.url),
+  new URL("../../dragon-core/components/dc_ui/www/app.html", import.meta.url),
+];
+const source = candidates.find((p) => fs.existsSync(p));
+if (!source) throw new Error("dc_ui SPA not found; run the ESP-IDF dependency build first");
+const html = fs.readFileSync(source, "utf8");
 
 const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map(
   (m) => m[1],

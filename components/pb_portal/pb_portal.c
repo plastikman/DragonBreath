@@ -6,6 +6,7 @@
 #include "dc_source.h"
 #include "dc_moonraker.h"
 #include "dc_bambu.h"
+#include "dc_ui.h"
 #include "pb_ha.h"
 #include "db_klipper_mqtt.h"
 #include "freertos/FreeRTOS.h"
@@ -27,13 +28,6 @@
 static const char *TAG = "pb_portal";
 #define NVS_NS "app_nvs"
 
-// STA-mode dashboard: the gzip of components/pb_portal/www/app.html, embedded
-// into flash rodata at build time (see CMakeLists.txt target_add_binary_data).
-// Served verbatim as a single Content-Encoding: gzip response.
-// cppcheck-suppress syntaxError  // GNU asm() label on an extern decl (embedded
-// binary symbol) is valid GCC; cppcheck's C parser does not model it.
-extern const uint8_t app_html_gz_start[] asm("_binary_app_html_gz_start");
-extern const uint8_t app_html_gz_end[]   asm("_binary_app_html_gz_end");
 // 32x32 PNG of the DragonBreath dragon mark, embedded from www/favicon.png (see
 // CMakeLists.txt). Served at /favicon.ico so the browser's automatic favicon fetch
 // gets a real icon instead of the SPA HTML from the "/*" catch-all.
@@ -353,20 +347,14 @@ static void send_version_inject(httpd_req_t *req)
 }
 
 // ---- handlers ----
-// Live dashboard SPA (root in STA mode). The embedded gzip of www/app.html is
-// sent verbatim as a single Content-Encoding: gzip response — the whole shell +
-// Dashboard, self-contained (inline icons/CSS/JS, no external requests). It binds
-// itself to the v2 API at runtime (GET /api/v2/state + /api/v2/events); nothing is
-// templated server-side.
+// Live Dragon-family SPA (root in STA mode). dc_ui owns the reproducible gzip
+// asset; this product portal owns only the HTTP response and existing routes.
 static esp_err_t app_page(httpd_req_t *req)
 {
-    // start/end are the linker-provided bounds of ONE embedded blob
-    // (target_add_binary_data), so end-start is its length — not UB.
-    // cppcheck-suppress comparePointers
-    const size_t len = (size_t)(app_html_gz_end - app_html_gz_start);
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    return httpd_resp_send(req, (const char *)app_html_gz_start, len);
+    dc_ui_asset_t asset = dc_ui_spa_asset();
+    httpd_resp_set_type(req, asset.content_type);
+    httpd_resp_set_hdr(req, "Content-Encoding", asset.content_encoding);
+    return httpd_resp_send(req, (const char *)asset.data, asset.len);
 }
 
 // Dedicated firmware-update page (GET /fw).
