@@ -12,16 +12,16 @@
 // state. db_klipper_mqtt_tick() (control task) owns pacing, telemetry/power publishing,
 // and all pb_policy_* calls; the s_last_* pacing fields are touched only by tick. Both
 // tasks read/write shared state under s_lock, and s_lock is always released before any
-// esp_mqtt publish or pb_policy_* call.
+// dc_mqtt publish or pb_policy_* call.
 #include "db_klipper_mqtt.h"
 #include "db_klipper_mqtt_arm.h"
+#include "dc_mqtt.h"
 #include "pb_policy.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "mqtt_client.h"
 #include "nvs.h"
 
 #include <math.h>
@@ -53,7 +53,7 @@ static const char *TAG = "db_km";
 static SemaphoreHandle_t        s_lock   = NULL;
 static db_km_config_t           s_cfg    = {0};
 static db_km_status_t           s_status = { .conn = DB_KM_DISABLED };
-static esp_mqtt_client_handle_t s_client = NULL;
+static dc_mqtt_client_t         *s_client = NULL;
 
 // Shared control state (guarded by s_lock).
 static db_km_arm_t        s_arm         = {0};
@@ -69,7 +69,7 @@ static int64_t  s_last_hb_us    = 0;
 static uint32_t s_rpc_id        = 0;
 static bool     s_last_power_pub = true;
 
-// Topics built once at start (must outlive esp_mqtt_client_init for the LWT).
+// Topics built once at start and retained for logging/topic construction.
 static char s_avail_topic[80]  = {0};   // <base>/status  (device availability, LWT)
 
 static const char *base(void) { return s_cfg.topic[0] ? s_cfg.topic : DEFAULT_PREFIX; }
@@ -231,7 +231,7 @@ static void publish_power_state(bool on)
 {
     char topic[80];
     snprintf(topic, sizeof topic, "%s/power/state", base());
-    esp_mqtt_client_publish(s_client, topic, on ? "on" : "off", 0, 0, 1);  // qos0, retain
+    dc_mqtt_publish(s_client, topic, on ? "on" : "off", 0, 0, true);  // qos0, retain
     s_last_power_pub = on;
 }
 
@@ -261,7 +261,7 @@ static void publish_telemetry(void)
 
     char topic[80];
     snprintf(topic, sizeof topic, "%s/telemetry", base());
-    esp_mqtt_client_publish(s_client, topic, buf, 0, 0, 0);   // qos0, non-retained
+    dc_mqtt_publish(s_client, topic, buf, 0, 0, false);   // qos0, non-retained
 
     // Optional device->Klipper writeback of live chamber temp into a macro variable,
     // so macro logic can read it (Moonraker [sensor] values are invisible to macros).
@@ -274,7 +274,7 @@ static void publish_telemetry(void)
             "VARIABLE=temperature VALUE=%.1f\"}}",
             (unsigned)(++s_rpc_id), snap.chamber_c);
         snprintf(areq, sizeof areq, "%s/moonraker/api/request", s_cfg.inst);
-        esp_mqtt_client_publish(s_client, areq, rpc, 0, 0, 0);
+        dc_mqtt_publish(s_client, areq, rpc, 0, 0, false);
     }
 }
 
@@ -284,21 +284,20 @@ static void subscribe_all(void)
 {
     char sub[128];
     snprintf(sub, sizeof sub, "%s/klipper/state/gcode_macro DRAGONBREATH/#", s_cfg.inst);
-    esp_mqtt_client_subscribe(s_client, sub, 0);
+    dc_mqtt_subscribe(s_client, sub, 0);
     snprintf(sub, sizeof sub, "%s/klipper/state/gcode_macro DB_LINK/#", s_cfg.inst);
-    esp_mqtt_client_subscribe(s_client, sub, 0);
+    dc_mqtt_subscribe(s_client, sub, 0);
     snprintf(sub, sizeof sub, "%s/moonraker/status", s_cfg.inst);
-    esp_mqtt_client_subscribe(s_client, sub, 0);
+    dc_mqtt_subscribe(s_client, sub, 0);
     snprintf(sub, sizeof sub, "%s/power/set", base());
-    esp_mqtt_client_subscribe(s_client, sub, 0);
+    dc_mqtt_subscribe(s_client, sub, 0);
 }
 
-static void mqtt_event_handler(void *args, esp_event_base_t evbase, int32_t id, void *data)
+static void mqtt_event_handler(void *ctx, const dc_mqtt_event_t *event)
 {
-    (void)args; (void)evbase;
-    esp_mqtt_event_handle_t e = (esp_mqtt_event_handle_t)data;
-    switch ((esp_mqtt_event_id_t)id) {
-    case MQTT_EVENT_CONNECTED:
+    (void)ctx;
+    switch (event->type) {
+    case DC_MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "connected to broker");
         xSemaphoreTake(s_lock, portMAX_DELAY);
         s_status.conn = DB_KM_CONNECTED;
@@ -309,20 +308,24 @@ static void mqtt_event_handler(void *args, esp_event_base_t evbase, int32_t id, 
         xSemaphoreGive(s_lock);
         // Availability + subscribes are thread-safe and touch no control-task state,
         // so they stay here; power-state + telemetry publishing is left to tick().
-        esp_mqtt_client_publish(s_client, s_avail_topic, "online", 0, 1, 1);
+        dc_mqtt_publish(s_client, s_avail_topic, "online", 0, 1, true);
         subscribe_all();
         break;
-    case MQTT_EVENT_DISCONNECTED:
+    case DC_MQTT_EVENT_DISCONNECTED:
         xSemaphoreTake(s_lock, portMAX_DELAY);
         s_status.conn = DB_KM_DISCONNECTED;
         s_status.connected = false;
         xSemaphoreGive(s_lock);
         force_disarm();               // no broker -> can't heartbeat -> fail safe off
         break;
-    case MQTT_EVENT_DATA:
-        if (e->topic_len > 0 && e->data_len >= 0)
-            handle_data(e->topic, e->topic_len, e->data, e->data_len);
+    case DC_MQTT_EVENT_MESSAGE:
+        // The subscribed desired-state payloads are tiny and expected in one MQTT
+        // event. Reject fragments rather than parsing a partial safety command.
+        if (event->current_data_offset == 0 &&
+            event->data_len == event->total_data_len && event->topic_len > 0)
+            handle_data(event->topic, event->topic_len, event->data, event->data_len);
         break;
+    case DC_MQTT_EVENT_ERROR:
     default:
         break;
     }
@@ -347,26 +350,20 @@ esp_err_t db_klipper_mqtt_start(void)
     char uri[128];
     snprintf(uri, sizeof uri, "%s://%s:%u", s_cfg.tls ? "mqtts" : "mqtt",
              s_cfg.host, (unsigned)s_cfg.port);
-    esp_mqtt_client_config_t mc = {
-        .broker.address.uri = uri,
-        .session.last_will = {
-            .topic = s_avail_topic, .msg = "offline", .msg_len = 7, .qos = 1, .retain = 1,
-        },
+    dc_mqtt_config_t mc = {
+        .broker_uri = uri,
+        .username = s_cfg.user,
+        .password = s_cfg.pass,
+        .last_will_topic = s_avail_topic,
+        .last_will_message = "offline",
+        .last_will_qos = 1,
+        .last_will_retain = true,
+        .skip_cert_common_name_check = s_cfg.tls,
+        .event_cb = mqtt_event_handler,
     };
-    if (s_cfg.tls) mc.broker.verification.skip_cert_common_name_check = true;
-    if (s_cfg.user[0]) mc.credentials.username = s_cfg.user;
-    if (s_cfg.pass[0]) mc.credentials.authentication.password = s_cfg.pass;
-
-    s_client = esp_mqtt_client_init(&mc);
-    if (s_client == NULL) {
-        ESP_LOGE(TAG, "esp_mqtt_client_init failed");
-        s_status.conn = DB_KM_DISCONNECTED;
-        return ESP_FAIL;
-    }
-    esp_mqtt_client_register_event(s_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
-    esp_err_t err = esp_mqtt_client_start(s_client);
+    esp_err_t err = dc_mqtt_start(&mc, &s_client);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_mqtt_client_start: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "dc_mqtt_start: %s", esp_err_to_name(err));
         s_status.conn = DB_KM_DISCONNECTED;
         return err;
     }
@@ -422,7 +419,9 @@ void db_klipper_mqtt_tick(void)
     // pub_now honors a connect / power-change request from the MQTT callback.
     if (pub_now || now - s_last_state_us >= STATE_PERIOD_US) {
         s_last_state_us = now;
-        if (power_now != s_last_power_pub) publish_power_state(power_now);
+        // A connect request must publish even when the default state is already ON;
+        // otherwise a fresh broker has no retained state until the first toggle.
+        if (pub_now || power_now != s_last_power_pub) publish_power_state(power_now);
         publish_telemetry();
     }
 }

@@ -19,3 +19,7 @@ dependencies:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_moonraker
     version: 431983c38c0fe37c2bea9c7afe393207b97e9004
+  dc_mqtt:
+    git: https://github.com/justinh-rahb/dragon-core.git
+    path: components/dc_mqtt
+    version: 19ad1002c2cbe71b634092cb2ab904db34811b88

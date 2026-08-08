@@ -5,6 +5,7 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 httpd="$root/components/pb_httpd/pb_httpd.c"
 # The dashboard/control UI now lives in the embedded SPA, not a C string.
 portal="$root/components/pb_portal/www/app.html"
+portal_c="$root/components/pb_portal/pb_portal.c"
 
 for route in info state command heartbeat events health; do
     grep -q "\"/api/v2/$route\"" "$httpd" || {
@@ -57,6 +58,16 @@ grep -q 's->params.manual_target_c' "$httpd" || {
     exit 1
 }
 grep -q 'expected->valuedouble < UINT32_MAX' "$httpd"
+
+# Never tell users to recreate an existing password file; `-c` overwrites it.
+if grep -Fq 'mosquitto_passwd -c /etc/mosquitto/passwd' "$portal_c"; then
+    echo "generated broker instructions can overwrite an existing password file" >&2
+    exit 1
+fi
+grep -Fq 'char mrk_user[48]' "$portal_c"
+grep -Fq 'topic write %s/klipper/state/gcode_macro DRAGONBREATH/#' "$portal_c"
+grep -Fq 'topic read  %s/telemetry' "$portal_c"
+grep -Fq 'topic read  %s/moonraker/api/request' "$portal_c"
 
 if grep -q 'cJSON_AddStringToObject(lease, "id"' "$httpd"; then
     echo "unauthenticated state exposes raw lease id" >&2

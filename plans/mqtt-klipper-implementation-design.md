@@ -24,7 +24,7 @@ uses the **verified** facts. The corrections that matter:
 | 2 | split-status payload = raw scalar | **`{"eventtime":…,"value":…}` JSON, retained** | parser reads `.value`; retained ⇒ arming must ignore it (see §6) |
 | 3 | (unstated) | combined `.../klipper/status` topic is **non-retained**; split topics **are** | we require `publish_split_status: True` |
 | 4 | object name sanitized | **literal space** kept: `.../gcode_macro DRAGONBREATH/…` | topic filters/parser handle the space |
-| 5 | (unstated) | API correlation by **globally-unique `id`** on a shared response topic; add **`mqtt_timestamp`** (or QoS 0/2) to avoid double-exec | writeback correlation + dedup |
+| 5 | (unstated) | API writes need duplicate protection via **`mqtt_timestamp`** or QoS 0/2 | optional writeback uses QoS 0; responses are ignored |
 | 6 | M191 "normally blocking" | **M141/M191 don't exist natively in Klipper**; a macro cannot block on an external value; `TEMPERATURE_WAIT` needs a *hardware* Klipper sensor; **no MQTT-fed Klipper sensor exists** | M141 shim only; blocking M191 impossible by construction |
 | 7 | (unstated) | `SET_GCODE_VARIABLE` is **in-memory only** (resets on FIRMWARE_RESTART) | device re-publishes desired-state + re-asserts `seq` on reconnect |
 | 8 | (unstated) | Moonraker `[sensor]` is **invisible to Klipper macros** | dashboard temp and macro-visible temp are **two paths** (sensor + writeback) |
@@ -101,7 +101,6 @@ to lease TTL) is the hardware backstop that forces heat off if we stop heartbeat
 | `INST/klipper/state/gcode_macro DRAGONBREATH/#` | Moonraker split-status (retained) | desired-state fields |
 | `INST/klipper/state/gcode_macro DB_LINK/#` | Moonraker split-status (retained) | heartbeat counter |
 | `INST/moonraker/status` | Moonraker (retained/LWT) | Klipper-stack availability |
-| `INST/moonraker/api/response` | Moonraker (non-retained) | JSON-RPC writeback responses |
 | `DB/power/set` | Moonraker `[power]` command | master enable on/off |
 
 **Device publishes:**
@@ -156,7 +155,8 @@ by a self-rescheduling `[delayed_gcode]` (doc-idiomatic; body stays motion-free)
 ## 5. Desired-state → arming state machine (the safety core)
 
 > **Invariant:** DragonBreath never energizes heat merely because it received desired
-> state. It requires an explicit **arm edge observed live** *and* a **fresh heartbeat**.
+> state. It requires a fresh coherent **`seq` update observed live** *and* a
+> **fresh heartbeat**.
 
 Because split-status is **retained**, a reconnecting device is handed `armed=1`,
 `target=55`, `seq=7`, and the last `heartbeat` value **immediately** — all potentially
@@ -166,7 +166,7 @@ State per (re)connect starts **DISARMED**, and:
 
 1. **Connect snapshot** — the first value received for each field (target/mode/seq/
    armed/heartbeat) is recorded as the initial snapshot. An `armed=1` *in the snapshot*
-   is **not** an arm edge; the snapshot `heartbeat` is **not** proof of liveness.
+   is not permission to arm; the snapshot `heartbeat` is **not** proof of liveness.
 2. **Liveness** — becomes true only after we observe the `heartbeat` value **change**
    at least once post-connect, and stays true while the last change was `< 15 s` ago
    (3 × 5 s cadence). Loss of liveness ⇒ force heat off, latch `comms_lost`.
@@ -174,37 +174,36 @@ State per (re)connect starts **DISARMED**, and:
    - `seq` advanced beyond last-applied (a coherent new desired-state — `seq` is
      written last, so all other fields are consistent when it changes);
    - `mode == "heat"` and `armed == 1`;
-   - the `0→1` **arm edge was observed live** (not the connect snapshot);
    - liveness is currently true.
 4. **Apply** — on a qualifying update: `pb_policy_set_power_on(target, …, &lease)`;
    publish `seq_ack = seq`. While armed+live, `pb_policy_heartbeat(&lease)` on each
    fresh heartbeat (period `< pb_heater` comms timeout).
 5. **Disarm / recover** — `armed→0`, `mode→off`, liveness lost, Moonraker `offline`,
    or master-power off ⇒ `pb_policy_set_mode_off`. Recovery re-enters at DISARMED and
-   requires a **new** live arm edge (a retained `armed=1` after reconnect never
+   requires a **new** live `seq` update (a retained `armed=1` after reconnect never
    re-arms on its own).
 
-Fan (`variable_fan`) and one-shots (`purge_nonce` edge) apply independently of the heat
-arm. Thermal cutoffs, max-temp, the `pb_heater` watchdog and fail-off all remain inside
-firmware and are unchanged — this mode cannot weaken them.
+`variable_fan` and `purge_nonce` are reserved protocol fields in 1.0.5; they are parsed
+and retained-safe but do not yet drive product actions. Thermal cutoffs, max-temp, the
+`pb_heater` watchdog and fail-off all remain inside firmware and are unchanged — this
+mode cannot weaken them.
 
 ---
 
-## 6. Device→Klipper writeback (macro-visible temp/fault)
+## 6. Device→Klipper writeback (macro-visible temperature)
 
 Moonraker `[sensor]` values are invisible to macros (§0 #8), so for macro logic the
-device writes temp/humidity/fault back into `DRAGONBREATH` vars via the API bridge:
+current implementation can write chamber temperature back into a `DRAGONBREATH`
+variable via the API bridge:
 ```json
 {"jsonrpc":"2.0","method":"printer.gcode.script","id":<uniq>,
- "params":{"script":"SET_GCODE_VARIABLE MACRO=DRAGONBREATH VARIABLE=temperature VALUE=42.3",
-           "mqtt_timestamp":<us>}}
+ "params":{"script":"SET_GCODE_VARIABLE MACRO=DRAGONBREATH VARIABLE=temperature VALUE=42.3"}}
 ```
-Rules from the docs: `id` **globally unique** (shared response topic); include
-`mqtt_timestamp` (or QoS 0/2) to prevent duplicate execution; **rate-limit to ~2 s,
-on-change only** — `printer.gcode.script` enters the G-code queue and must not compete
-with print moves. String values need doubled quoting (`VALUE='"latched"'`); numbers
-bare. This path is **optional** (telemetry-out via `[sensor]` covers the dashboard);
-enable it only when a customer's macros need live device state.
+The firmware publishes this request at QoS 0 every ~2 s and does not consume the API
+response. QoS 0 follows Moonraker's duplicate-execution guidance without requiring an
+`mqtt_timestamp`. Humidity and fault-variable writeback remain future protocol work.
+This path is **optional** (`[sensor]` telemetry covers the dashboard); enable it only
+when a customer's macros need the live chamber temperature.
 
 ---
 
