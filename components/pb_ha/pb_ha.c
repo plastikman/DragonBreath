@@ -4,18 +4,18 @@
 // Heat control holds a device-issued POWER_ON lease and heartbeats it like any
 // remote controller. See plans/control-source-bambu-ha.md.
 //
-// Threading: the esp-mqtt event handler runs on the mqtt task (connect/discovery/
+// Threading: the dc_mqtt event handler runs on the mqtt task (connect/discovery/
 // subscribe + inbound commands); pb_ha_tick() runs on the control task (state
-// publish + lease heartbeat). esp_mqtt_client_publish() is thread-safe; the shared
+// publish + lease heartbeat). dc_mqtt_publish() is thread-safe; the shared
 // lease/target state is guarded by s_lock.
 #include "pb_ha.h"
+#include "dc_mqtt.h"
 #include "pb_policy.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "mqtt_client.h"
 #include "nvs.h"
 
 #include <math.h>
@@ -42,7 +42,7 @@ static const char *TAG = "pb_ha";
 static SemaphoreHandle_t        s_lock   = NULL;
 static pb_ha_config_t           s_cfg    = {0};
 static pb_ha_status_t           s_status = { .state = PB_HA_DISABLED };
-static esp_mqtt_client_handle_t s_client = NULL;
+static dc_mqtt_client_t         *s_client = NULL;
 
 // Shared control state (guarded by s_lock).
 static bool               s_have_lease = false;
@@ -53,7 +53,7 @@ static float              s_desired_target = 45.0f;
 static int64_t s_last_state_us = 0;
 static int64_t s_last_hb_us    = 0;
 
-// Availability (LWT) topic — must outlive esp_mqtt_client_init(), so it's static.
+// Availability (LWT) topic retained for discovery and reconnect publications.
 static char s_avail_topic[80] = {0};
 
 static const char *prefix(void) { return s_cfg.topic[0] ? s_cfg.topic : DEFAULT_PREFIX; }
@@ -187,7 +187,7 @@ static void publish_discovery(void)
     if (cfg > 0 && cfg < (int)sizeof buf) {
         char topic[96];
         snprintf(topic, sizeof topic, "homeassistant/climate/%s/config", p);
-        esp_mqtt_client_publish(s_client, topic, buf, 0, 1, 1);   // qos1, retain
+        dc_mqtt_publish(s_client, topic, buf, 0, 1, true);   // qos1, retain
     }
 
     // Chamber temperature sensor.
@@ -200,7 +200,7 @@ static void publish_discovery(void)
     {
         char topic[96];
         snprintf(topic, sizeof topic, "homeassistant/sensor/%s_chamber/config", p);
-        esp_mqtt_client_publish(s_client, topic, buf, 0, 1, 1);
+        dc_mqtt_publish(s_client, topic, buf, 0, 1, true);
     }
 
     // Element (PTC) temperature sensor.
@@ -213,7 +213,7 @@ static void publish_discovery(void)
     {
         char topic[96];
         snprintf(topic, sizeof topic, "homeassistant/sensor/%s_ptc/config", p);
-        esp_mqtt_client_publish(s_client, topic, buf, 0, 1, 1);
+        dc_mqtt_publish(s_client, topic, buf, 0, 1, true);
     }
 }
 
@@ -234,43 +234,44 @@ static void publish_state(void)
 
     char topic[80];
     snprintf(topic, sizeof topic, "%s/state", prefix());
-    esp_mqtt_client_publish(s_client, topic, buf, 0, 0, 1);   // qos0, retain
+    dc_mqtt_publish(s_client, topic, buf, 0, 0, true);   // qos0, retain
 }
 
 // ---------- mqtt events ----------
 
-static void mqtt_event_handler(void *args, esp_event_base_t base, int32_t id, void *data)
+static void mqtt_event_handler(void *ctx, const dc_mqtt_event_t *event)
 {
-    (void)args; (void)base;
-    esp_mqtt_event_handle_t e = (esp_mqtt_event_handle_t)data;
-    switch ((esp_mqtt_event_id_t)id) {
-    case MQTT_EVENT_CONNECTED: {
+    (void)ctx;
+    switch (event->type) {
+    case DC_MQTT_EVENT_CONNECTED: {
         ESP_LOGI(TAG, "connected to broker");
         xSemaphoreTake(s_lock, portMAX_DELAY);
         s_status.state = PB_HA_CONNECTED;
         s_status.connected = true;
         xSemaphoreGive(s_lock);
         // Availability online (retained), discovery, then subscribe commands.
-        esp_mqtt_client_publish(s_client, s_avail_topic, "online", 0, 1, 1);
+        dc_mqtt_publish(s_client, s_avail_topic, "online", 0, 1, true);
         publish_discovery();
         char sub[80];
         snprintf(sub, sizeof sub, "%s/mode/set", prefix());
-        esp_mqtt_client_subscribe(s_client, sub, 1);
+        dc_mqtt_subscribe(s_client, sub, 1);
         snprintf(sub, sizeof sub, "%s/temp/set", prefix());
-        esp_mqtt_client_subscribe(s_client, sub, 1);
+        dc_mqtt_subscribe(s_client, sub, 1);
         s_last_state_us = 0;   // force an immediate state publish on next tick
         break;
     }
-    case MQTT_EVENT_DISCONNECTED:
+    case DC_MQTT_EVENT_DISCONNECTED:
         xSemaphoreTake(s_lock, portMAX_DELAY);
         s_status.state = PB_HA_DISCONNECTED;
         s_status.connected = false;
         xSemaphoreGive(s_lock);
         break;
-    case MQTT_EVENT_DATA:
-        if (e->topic_len > 0 && e->data_len >= 0)
-            handle_cmd(e->topic, e->topic_len, e->data, e->data_len);
+    case DC_MQTT_EVENT_MESSAGE:
+        if (event->current_data_offset == 0 &&
+            event->data_len == event->total_data_len && event->topic_len > 0)
+            handle_cmd(event->topic, event->topic_len, event->data, event->data_len);
         break;
+    case DC_MQTT_EVENT_ERROR:
     default:
         break;
     }
@@ -299,29 +300,19 @@ esp_err_t pb_ha_start(void)
 
     char uri[96];
     snprintf(uri, sizeof uri, "mqtt://%s:%u", s_cfg.host, (unsigned)s_cfg.port);
-    esp_mqtt_client_config_t mc = {
-        .broker.address.uri = uri,
-        .session.last_will = {
-            .topic  = s_avail_topic,
-            .msg    = "offline",
-            .msg_len = 7,
-            .qos    = 1,
-            .retain = 1,
-        },
+    dc_mqtt_config_t mc = {
+        .broker_uri = uri,
+        .username = s_cfg.user,
+        .password = s_cfg.pass,
+        .last_will_topic = s_avail_topic,
+        .last_will_message = "offline",
+        .last_will_qos = 1,
+        .last_will_retain = true,
+        .event_cb = mqtt_event_handler,
     };
-    if (s_cfg.user[0]) mc.credentials.username = s_cfg.user;
-    if (s_cfg.pass[0]) mc.credentials.authentication.password = s_cfg.pass;
-
-    s_client = esp_mqtt_client_init(&mc);
-    if (s_client == NULL) {
-        ESP_LOGE(TAG, "esp_mqtt_client_init failed");
-        s_status.state = PB_HA_DISCONNECTED;
-        return ESP_FAIL;
-    }
-    esp_mqtt_client_register_event(s_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
-    esp_err_t err = esp_mqtt_client_start(s_client);
+    esp_err_t err = dc_mqtt_start(&mc, &s_client);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_mqtt_client_start: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "dc_mqtt_start: %s", esp_err_to_name(err));
         s_status.state = PB_HA_DISCONNECTED;
         return err;
     }

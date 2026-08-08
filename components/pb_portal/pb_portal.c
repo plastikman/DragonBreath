@@ -1023,6 +1023,10 @@ static esp_err_t km_config_page(httpd_req_t *req)
     if (!user[0]) strcpy(user, "dragonbreath");
     if (!inst[0]) strcpy(inst, "myprinter");
     if (!base[0]) strcpy(base, "dragonbreath");
+    // Generate a separate Moonraker identity so the broker ACL can preserve
+    // directional least privilege. The saved km_user remains DragonBreath's login.
+    char mrk_user[48];
+    snprintf(mrk_user, sizeof mrk_user, "%s_moonraker", user);
 
     httpd_resp_set_type(req, "text/plain; charset=utf-8");
     char b[640];
@@ -1047,7 +1051,7 @@ static esp_err_t km_config_page(httpd_req_t *req)
         "status_objects:\n"
         "  gcode_macro DRAGONBREATH\n"
         "  gcode_macro DB_LINK\n\n",
-        host, (unsigned)port, user, inst);
+        host, (unsigned)port, mrk_user, inst);
     SEND(req, b);
 
     snprintf(b, sizeof b, "[sensor %s]\ntype: mqtt\nname: DragonBreath\nstate_topic: %s/telemetry\n",
@@ -1103,21 +1107,41 @@ static esp_err_t km_config_page(httpd_req_t *req)
     // ---- mosquitto ACL ----
     snprintf(b, sizeof b,
         "########## mosquitto ACL (least privilege) ##########\n"
-        "# Create the user + password:  mosquitto_passwd -c /etc/mosquitto/passwd %s\n"
+        "# Add/update both users (do not use -c on an existing password file):\n"
+        "#   mosquitto_passwd /etc/mosquitto/passwd %s\n"
+        "#   mosquitto_passwd /etc/mosquitto/passwd %s\n"
+        "# DragonBreath device identity\n"
         "user %s\n"
         "topic write %s/telemetry\n"
         "topic write %s/power/state\n"
         "topic write %s/status\n"
         "topic read  %s/power/set\n",
-        user, user, base, base, base, base);
+        user, mrk_user, user, base, base, base, base);
     SEND(req, b);
     snprintf(b, sizeof b,
         "topic read  %s/moonraker/status\n"
         "topic read  %s/klipper/state/gcode_macro DRAGONBREATH/#\n"
         "topic read  %s/klipper/state/gcode_macro DB_LINK/#\n"
         "# writeback (only if you enabled it):\n"
-        "topic write %s/moonraker/api/request\n"
-        "topic read  %s/moonraker/api/response\n",
+        "topic write %s/moonraker/api/request\n",
+        inst, inst, inst, inst);
+    SEND(req, b);
+    snprintf(b, sizeof b,
+        "\n"
+        "# Moonraker identity (opposite direction on the same scoped topics)\n"
+        "user %s\n"
+        "topic read  %s/telemetry\n"
+        "topic read  %s/power/state\n"
+        "topic read  %s/status\n"
+        "topic write %s/power/set\n",
+        mrk_user, base, base, base, base);
+    SEND(req, b);
+    snprintf(b, sizeof b,
+        "topic write %s/moonraker/status\n"
+        "topic write %s/klipper/state/gcode_macro DRAGONBREATH/#\n"
+        "topic write %s/klipper/state/gcode_macro DB_LINK/#\n"
+        "topic read  %s/moonraker/api/request\n"
+        "topic write %s/moonraker/api/response\n",
         inst, inst, inst, inst, inst);
     SEND(req, b);
 

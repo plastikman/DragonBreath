@@ -26,7 +26,7 @@ typedef struct {
     char     inst[48];   // Moonraker instance_name (required — derives all topics)
     char     topic[48];  // device topic base (defaults to "dragonbreath")
     bool     tls;        // mqtts (skip-verify LAN, like pb_bambu)
-    bool     writeback;  // push live temp/fault into macro vars (off by default)
+    bool     writeback;  // push live chamber temperature into a macro var (off by default)
 } db_km_config_t;
 
 typedef struct {
