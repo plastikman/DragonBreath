@@ -1092,6 +1092,112 @@ static void test_auto_source_zone_overrides_bed_threshold(void)
     CHECK(snapshot().effective_target_c == 70.0f);
 }
 
+// #72: a one-off manual run started while AUTO returns to AUTO "waiting" when it
+// ends as a run (local timer completion OR the on-device On-button toggle-off),
+// instead of dropping to idle.
+static void test_manual_override_of_auto_reverts_on_run_end(void)
+{
+    // (a) local timed-run completion reverts to AUTO waiting.
+    reset_fixture();
+    CHECK(pb_policy_set_auto(60.0f, 100.0f, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+    uint32_t rev = snapshot().state_revision;
+    CHECK(pb_policy_set_power_on(
+        45.0f, DB_SOURCE_BUTTON, "panel", rev, NULL) == PB_POLICY_OK);
+    CHECK(snapshot().mode == PB_MODE_POWER_ON);
+    pb_policy_tick();
+    CHECK(snapshot().heater_output);
+
+    fake_now_us += (int64_t)PB_POLICY_LOCAL_POWER_MAX_MS * 1000 + 1;
+    pb_policy_tick();
+    pb_policy_snapshot_t snap = snapshot();
+    CHECK(snap.mode == PB_MODE_AUTO);                 // reverted, not OFF
+    CHECK(!snap.auto_engaged);                        // "waiting"
+    CHECK(snap.auto_bed_threshold_c == 100.0f);       // re-armed from remembered AUTO
+    CHECK(!snap.fault_latched);
+    CHECK(snap.effective_target_c == 0.0f);           // waiting applies no heat
+
+    // (b) on-device On-button toggle-off (stop the run) reverts to AUTO waiting.
+    reset_fixture();
+    pb_policy_load_params();                          // auto=60/bed100
+    pb_policy_on_button(PB_BUTTON_AUTO, PB_BUTTON_SHORT);
+    CHECK(snapshot().mode == PB_MODE_AUTO);
+    pb_policy_on_button(PB_BUTTON_ON, PB_BUTTON_SHORT);
+    CHECK(snapshot().mode == PB_MODE_POWER_ON);
+    pb_policy_on_button(PB_BUTTON_ON, PB_BUTTON_SHORT);   // stop the run
+    snap = snapshot();
+    CHECK(snap.mode == PB_MODE_AUTO);
+    CHECK(!snap.auto_engaged);
+}
+
+// #72: an explicit OFF (off command OR the Power button) after a manual override
+// stays OFF — only a run ending "as a run" reverts.
+static void test_manual_override_explicit_off_stays_off(void)
+{
+    // off command:
+    reset_fixture();
+    CHECK(pb_policy_set_auto(60.0f, 100.0f, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+    uint32_t rev = snapshot().state_revision;
+    pb_policy_lease_t lease;
+    CHECK(pb_policy_set_power_on(
+        45.0f, DB_SOURCE_WEB, "u1", rev, &lease) == PB_POLICY_OK);
+    pb_policy_set_mode_off(DB_SOURCE_WEB);
+    CHECK(snapshot().mode == PB_MODE_OFF);
+
+    // front-panel Power button (master OFF), distinct from the On toggle:
+    reset_fixture();
+    pb_policy_load_params();
+    pb_policy_on_button(PB_BUTTON_AUTO, PB_BUTTON_SHORT);
+    pb_policy_on_button(PB_BUTTON_ON, PB_BUTTON_SHORT);   // manual override of AUTO
+    CHECK(snapshot().mode == PB_MODE_POWER_ON);
+    pb_policy_on_button(PB_BUTTON_POWER, PB_BUTTON_SHORT);
+    CHECK(snapshot().mode == PB_MODE_OFF);               // stays off, no revert
+}
+
+// #72: a manual run started from OFF (no prior AUTO) ends at OFF — no spurious
+// revert. Also confirms the resume memory is RAM-only: after a reboot a fresh
+// run cannot inherit a stale "resume AUTO".
+static void test_manual_from_off_ends_off(void)
+{
+    reset_fixture();
+    CHECK(pb_policy_set_power_on(
+        45.0f, DB_SOURCE_BUTTON, "panel", 1, NULL) == PB_POLICY_OK);
+    fake_now_us += (int64_t)PB_POLICY_LOCAL_POWER_MAX_MS * 1000 + 1;
+    pb_policy_tick();
+    CHECK(snapshot().mode == PB_MODE_OFF);
+
+    // Override AUTO (resume=AUTO in RAM), reboot, then a run from OFF must end OFF.
+    reset_fixture();
+    pb_policy_load_params();
+    pb_policy_on_button(PB_BUTTON_AUTO, PB_BUTTON_SHORT);
+    pb_policy_on_button(PB_BUTTON_ON, PB_BUTTON_SHORT);
+    CHECK(snapshot().mode == PB_MODE_POWER_ON);
+    CHECK(pb_policy_init() == ESP_OK);                   // reboot: resume memory gone
+    pb_policy_load_params();
+    CHECK(pb_policy_set_power_on(
+        45.0f, DB_SOURCE_BUTTON, "panel", snapshot().state_revision, NULL)
+        == PB_POLICY_OK);
+    fake_now_us += (int64_t)PB_POLICY_LOCAL_POWER_MAX_MS * 1000 + 1;
+    pb_policy_tick();
+    CHECK(snapshot().mode == PB_MODE_OFF);              // not a stale revert to AUTO
+}
+
+// #72: a safety-driven forced OFF during a manual override (remote lease expiry)
+// latches OFF+fault and never silently reverts to AUTO.
+static void test_manual_override_safety_off_no_revert(void)
+{
+    reset_fixture();
+    CHECK(pb_policy_set_auto(60.0f, 100.0f, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+    uint32_t rev = snapshot().state_revision;
+    pb_policy_lease_t lease;
+    CHECK(pb_policy_set_power_on(
+        45.0f, DB_SOURCE_KLIPPER, "u1", rev, &lease) == PB_POLICY_OK);
+    fake_now_us += (int64_t)heater_comms_timeout_ms * 1000 + 1;
+    pb_policy_tick();
+    pb_policy_snapshot_t snap = snapshot();
+    CHECK(snap.mode == PB_MODE_OFF);                    // safety off, not AUTO
+    CHECK(snap.fault_latched);
+}
+
 int main(void)
 {
     test_boot_is_off();
@@ -1124,6 +1230,10 @@ int main(void)
     test_button_power_long_clears_or_holds_fault();
     test_fault_clear_persist_failure_stays_latched();
     test_purge_decide_session_and_hysteresis();
+    test_manual_override_of_auto_reverts_on_run_end();
+    test_manual_override_explicit_off_stays_off();
+    test_manual_from_off_ends_off();
+    test_manual_override_safety_off_no_revert();
     puts("pb_policy host tests: PASS");
     return 0;
 }

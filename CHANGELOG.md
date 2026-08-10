@@ -7,6 +7,16 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+- **Restore AUTO after a one-off manual override (#72).** When the heater is in
+  **AUTO** and you do a one-off **manual** run, the device now returns to AUTO
+  "waiting" when that run ends — either a local timed run completing or the
+  on-device **On** button stopping it — instead of dropping to idle. An explicit
+  **OFF** (the `off` command or the front-panel **Power** button) still stays off,
+  and any safety-driven off (fault, comms/lease timeout, panic) latches off and
+  never reverts. Only AUTO is resumed (not drying); the memory is RAM-only and
+  never persists across a reboot.
+
 ## [1.1.4] - 2026-08-10
 
 **Firmware-update UX restored on the shared setup surface, from `dragon-core` v0.7.0.**

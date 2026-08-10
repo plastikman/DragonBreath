@@ -64,6 +64,13 @@ typedef struct {
     db_source_t source;
     uint32_t revision;
 
+    // #72: one-off manual-override memory (RAM-only, never persisted, not in the
+    // snapshot). When a POWER_ON run replaces AUTO, this remembers AUTO so the
+    // run's natural completion or an on-device stop returns to AUTO "waiting"
+    // instead of OFF. PB_MODE_OFF = no resume; explicit OFF and every safety path
+    // clear it, so only a run ending as a run can revert.
+    pb_mode_t resume_mode;
+
     float requested_target_c;
     uint8_t requested_fan_percent;
 
@@ -188,6 +195,30 @@ static void set_off_locked(db_source_t source)
     s.auto_engaged = false;
     s.drying_deadline_us = 0;
     s.local_power_deadline_us = 0;
+    s.resume_mode = PB_MODE_OFF;   // #72: explicit/hard OFF never reverts
+    lease_invalidate_locked();
+    revision_advance_locked(source);
+}
+
+// #72: end a POWER_ON run. If it was a one-off override of AUTO, return to AUTO
+// "waiting" (re-armed from the remembered params); otherwise drop to OFF. Explicit
+// OFF and every safety path use set_off_locked directly (which clears resume_mode),
+// so only a run's natural completion or an on-device stop can revert here.
+static void restore_or_off_locked(db_source_t source)
+{
+    if (s.resume_mode != PB_MODE_AUTO) {
+        set_off_locked(source);
+        return;
+    }
+    (void)pb_heater_set_target_c(0.0f);   // AUTO "waiting" applies no heat until engaged
+    s.mode = PB_MODE_AUTO;
+    s.requested_target_c = s.params.auto_target_c;         // remembered, already clamped
+    s.auto_bed_threshold_c = s.params.auto_bed_threshold_c;
+    s.auto_engaged = false;
+    s.auto_filtering = false;
+    s.drying_deadline_us = 0;
+    s.local_power_deadline_us = 0;
+    s.resume_mode = PB_MODE_OFF;
     lease_invalidate_locked();
     revision_advance_locked(source);
 }
@@ -445,8 +476,13 @@ pb_policy_result_t pb_policy_set_power_on(
     }
 
     int64_t now = esp_timer_get_time();
+    // #72: a manual run started while AUTO is a one-off override — remember to
+    // return to AUTO "waiting" when it ends. From any other mode there is nothing
+    // to revert to.
+    pb_mode_t prev_mode = s.mode;
     lease_invalidate_locked();
     s.mode = PB_MODE_POWER_ON;
+    s.resume_mode = (prev_mode == PB_MODE_AUTO) ? PB_MODE_AUTO : PB_MODE_OFF;
     s.requested_target_c = pb_heater_get_target_c(); // includes heater clamp
     s.auto_engaged = false;
     s.drying_deadline_us = 0;
@@ -486,6 +522,7 @@ pb_policy_result_t pb_policy_set_auto(
     }
     lease_invalidate_locked();
     s.mode = PB_MODE_AUTO;
+    s.resume_mode = PB_MODE_OFF;   // #72: an explicit AUTO command is not an override
     float max_target_c = pb_heater_get_max_target_c();
     s.requested_target_c =
         target_c > max_target_c ? max_target_c : target_c;
@@ -529,6 +566,7 @@ pb_policy_result_t pb_policy_start_drying(
     }
     lease_invalidate_locked();
     s.mode = PB_MODE_DRYING;
+    s.resume_mode = PB_MODE_OFF;   // #72: drying is not resumable; no revert to AUTO
     s.requested_target_c = pb_heater_get_target_c();
     s.auto_engaged = false;
     s.local_power_deadline_us = 0;
@@ -549,6 +587,18 @@ void pb_policy_set_mode_off(db_source_t source)
     if (!s_lock) return;
     xSemaphoreTake(s_lock, portMAX_DELAY);
     set_off_locked(source);
+    xSemaphoreGive(s_lock);
+    wake_control_task();
+}
+
+// #72: stop a manual run *as a run* (the on-device On-button toggle-off) — revert
+// to AUTO "waiting" if this run was a one-off override of AUTO, else OFF. This is
+// NOT the master-OFF path; the Power button and the `off` command stay hard OFF.
+static void pb_policy_stop_power_on(db_source_t source)
+{
+    if (!s_lock) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    restore_or_off_locked(source);
     xSemaphoreGive(s_lock);
     wake_control_task();
 }
@@ -700,6 +750,7 @@ void pb_policy_request_panic_off(db_source_t source, const char *reason)
     s.auto_engaged = false;
     s.drying_deadline_us = 0;
     s.local_power_deadline_us = 0;
+    s.resume_mode = PB_MODE_OFF;   // #72: safety off never reverts
     lease_invalidate_locked();
     revision_advance_locked(source);
     // Claim the fault edge so pb_policy_tick() sees last_faulted already true and
@@ -732,7 +783,12 @@ static const char *button_str(pb_button_id_t id)
 static pb_policy_result_t button_toggle_mode(pb_mode_t target_mode)
 {
     if (pb_policy_get_mode() == target_mode) {
-        pb_policy_set_mode_off(DB_SOURCE_BUTTON);
+        // #72: toggling OFF a manual run reverts to AUTO "waiting" if it overrode
+        // AUTO; toggling off AUTO/DRY is a plain stop.
+        if (target_mode == PB_MODE_POWER_ON)
+            pb_policy_stop_power_on(DB_SOURCE_BUTTON);
+        else
+            pb_policy_set_mode_off(DB_SOURCE_BUTTON);
         return PB_POLICY_OK;
     }
     pb_policy_params_t p;
@@ -872,7 +928,9 @@ void pb_policy_tick(void)
             } else if (!s.lease_active && s.local_power_deadline_us > 0
                        && now >= s.local_power_deadline_us) {
                 local_limit_expired = true;
-                set_off_locked(DB_SOURCE_WATCHDOG);
+                // #72: an on-device timed manual run completing is the run "done" —
+                // revert to AUTO "waiting" if it overrode AUTO, else OFF.
+                restore_or_off_locked(DB_SOURCE_WATCHDOG);
             } else {
                 target = s.requested_target_c;
                 autonomous = !s.lease_active;
@@ -938,6 +996,7 @@ void pb_policy_tick(void)
         s.auto_engaged = false;
         s.drying_deadline_us = 0;
         s.local_power_deadline_us = 0;
+        s.resume_mode = PB_MODE_OFF;   // #72: lease/local timeout latches off, no revert
         revision_advance_locked(DB_SOURCE_WATCHDOG);
     }
 
@@ -976,6 +1035,7 @@ void pb_policy_tick(void)
         s.auto_engaged = false;
         s.drying_deadline_us = 0;
         s.local_power_deadline_us = 0;
+        s.resume_mode = PB_MODE_OFF;   // #72: fault sync latches off, no revert
         lease_invalidate_locked();
         // Preserve WATCHDOG attribution for a policy-triggered expiry.
         if (!watchdog_trip) revision_advance_locked(DB_SOURCE_SAFETY);
