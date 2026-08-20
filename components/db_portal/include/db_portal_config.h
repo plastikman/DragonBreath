@@ -37,6 +37,8 @@ typedef struct {
     db_portal_text_value_t km_host, km_user, km_pass, km_inst, km_topic;
     db_portal_port_value_t km_port;
     db_portal_bool_value_t km_tls, km_writeback;
+    db_portal_text_value_t pr_host, pr_key;      // Prusa host + API key (handled inline
+                                                 // in apply_product, not the shared planner)
 } db_portal_product_request_t;
 
 typedef struct {

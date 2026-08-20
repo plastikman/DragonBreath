@@ -158,6 +158,9 @@ static cJSON *state_json(const pb_policy_snapshot_t *s)
     // between a save and the reboot. Lets the dashboard label the printer/source row.
     dc_ctl_source_t ctl_src = dc_source_get();
     cJSON_AddStringToObject(environment, "control_source", dc_source_str(ctl_src));
+    // Source capability: filament-aware (AUTO follows the filament zone) vs bed-follow
+    // (AUTO follows the bed setpoint). The dashboard's AUTO card keys off this.
+    cJSON_AddBoolToObject(environment, "source_has_filament", dc_source_has_filament(ctl_src));
     // In Bambu mode, surface the configured serial so the dashboard can label the
     // row "Bambu (<serial>)" — the LAN report carries no friendly printer name.
     if (ctl_src == DC_SRC_BAMBU) {

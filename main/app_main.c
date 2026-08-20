@@ -37,6 +37,7 @@
 #include "dc_moonraker.h"
 #include "dc_source.h"
 #include "dc_bambu.h"
+#include "dc_prusa.h"
 #include "pb_ha.h"
 #include "db_klipper_mqtt.h"
 #include <math.h>
@@ -67,6 +68,7 @@ static volatile bool s_mk_up    = false;   // Klipper (Moonraker)
 static volatile bool s_bambu_up = false;   // Bambu LAN MQTT
 static volatile bool s_ha_up    = false;   // Home Assistant MQTT
 static volatile bool s_km_up    = false;   // Klipper (MQTT)
+static volatile bool s_prusa_up = false;   // PrusaLink HTTP
 // The persisted control source, read once at boot. Default Klipper.
 static dc_ctl_source_t s_src = DC_SRC_KLIPPER;
 
@@ -234,6 +236,26 @@ static void control_task(void *arg)
                 // macros publish desired-state, the client runs the retained-aware
                 // arming machine and drives target/mode through pb_policy directly.
                 if (s_km_up) db_klipper_mqtt_tick();
+                break;
+            case DC_SRC_PRUSA:
+                // PrusaLink reports no filament type: FOLLOW THE BED. Engage the
+                // chamber (to the AUTO card's target) once the printer's bed setpoint
+                // reaches the AUTO card's bed threshold. Both come from pb_policy — the
+                // Auto card supplies this source's bed->chamber rule (no filament zones).
+                if (s_prusa_up) {
+                    dc_prusa_status_t ps;
+                    dc_prusa_get_status(&ps);
+                    src_connected = ps.online;
+                    if (src_connected) {
+                        if (isfinite(ps.bed_temp)) bed_c = ps.bed_temp;
+                        bed_target_c = ps.bed_target;
+                        pb_policy_snapshot_t pol;
+                        pb_policy_get_snapshot(&pol);
+                        if (pol.params.auto_bed_threshold_c > 0.0f &&
+                            ps.bed_target >= pol.params.auto_bed_threshold_c)
+                            src_target_c = pol.params.auto_target_c;
+                    }
+                }
                 break;
             case DC_SRC_NONE:
                 break;   // unbound: no bed source, feeds zeros/not-connected
@@ -435,6 +457,12 @@ void app_main(void)
             ESP_LOGE(TAG, "db_klipper_mqtt_start: %s (continuing; no MQTT control)", esp_err_to_name(e));
         else
             s_km_up = true;
+        break;
+    case DC_SRC_PRUSA:
+        if ((e = dc_prusa_start()) != ESP_OK)
+            ESP_LOGE(TAG, "dc_prusa_start: %s (continuing; no printer follow)", esp_err_to_name(e));
+        else
+            s_prusa_up = true;
         break;
     case DC_SRC_NONE:
         ESP_LOGI(TAG, "control source: none (unbound) — no external controller");

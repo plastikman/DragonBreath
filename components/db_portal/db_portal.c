@@ -4,6 +4,7 @@
 
 #include "db_klipper_mqtt.h"
 #include "dc_bambu.h"
+#include "dc_prusa.h"
 #include "dc_moonraker.h"
 #include "dc_portal.h"
 #include "dc_source.h"
@@ -239,7 +240,7 @@ static cJSON *describe_product(void *ctx)
     snprintf(selected_source, sizeof selected_source, "%d", dc_source_get());
     cJSON *src = field("ctl_src", "Source", "select", selected_source, false);
     cJSON *opts = cJSON_AddArrayToObject(src, "options");
-    static const char *labels[] = {"Klipper (Moonraker)", "Bambu LAN", "Home Assistant", "None", "Klipper MQTT"};
+    static const char *labels[] = {"Klipper (Moonraker)", "Bambu LAN", "Home Assistant", "None", "Klipper MQTT", "Prusa (PrusaLink)"};
     for (int i = 0; i < DC_SRC_MAX; i++) {
         cJSON *o = cJSON_CreateObject();
         char value[4];
@@ -267,7 +268,8 @@ static cJSON *describe_product(void *ctx)
     add_field(s, field("bb_serial", "Serial", "text", bb.serial, false));
     add_field(s, field("bb_code", "Access code (leave blank to keep)", "password", "", true));
     // LAN discovery: the shared SPA renders a Search picker from this block and
-    // fills bb_host + bb_serial, so the user only enters the access code.
+    // fills bb_host + bb_serial, so the user only enters the access code. This MUST
+    // stay attached to the Bambu section's `s` — keep it before the next section().
     cJSON *disc = cJSON_AddObjectToObject(s, "discovery");
     cJSON_AddStringToObject(disc, "scan", "/api/v2/bambu/scan");
     cJSON_AddStringToObject(disc, "endpoint", "/api/v2/bambu/discovered");
@@ -276,6 +278,18 @@ static cJSON *describe_product(void *ctx)
     cJSON *bb_fill = cJSON_AddObjectToObject(disc, "fill");   // discovered key -> field key
     cJSON_AddStringToObject(bb_fill, "host", "bb_host");
     cJSON_AddStringToObject(bb_fill, "serial", "bb_serial");
+
+    dc_prusa_config_t pr = {0};
+    dc_prusa_get_config(&pr);
+    s = section(root, "Prusa (PrusaLink)");   // no discovery: PrusaLink has no SSDP scan
+    visible_when(s, "ctl_src", "5");
+    cJSON_AddStringToObject(s, "description",
+        "Bed-follow: DragonBreath polls the printer's PrusaLink API and, in AUTO, heats the "
+        "chamber once the printer's bed setpoint reaches your threshold (PrusaLink reports no "
+        "filament type). Set the bed threshold and chamber target on the dashboard's Auto "
+        "card. The API key is the printer's PrusaLink password.");
+    add_field(s, field("pr_host", "Printer host", "text", pr.host, false));
+    add_field(s, field("pr_key", "API key / PrusaLink password (leave blank to keep)", "password", "", true));
 
     pb_ha_config_t ha = {0};
     pb_ha_get_config(&ha);
@@ -428,6 +442,7 @@ static esp_err_t parse_product_request(const cJSON *values,
     PARSE_TEXT(km_host); PARSE_PORT(km_port); PARSE_TEXT(km_user);
     PARSE_TEXT(km_pass); PARSE_TEXT(km_inst); PARSE_TEXT(km_topic);
     PARSE_BOOL(km_tls); PARSE_BOOL(km_writeback);
+    PARSE_TEXT(pr_host); PARSE_TEXT(pr_key);
 
 #undef PARSE_TEXT
 #undef PARSE_PORT
@@ -484,6 +499,24 @@ static esp_err_t apply_product(const cJSON *values, void *ctx, char *message, si
         err = db_klipper_mqtt_set_config(&plan.klipper_mqtt);
         if (err != ESP_OK) return persistence_error("Klipper MQTT", err, message, message_size);
     }
+    // Prusa (PrusaLink) — handled inline (not in the shared planner). A blank API-key
+    // submission preserves the saved key; host/threshold/target overwrite when present.
+    dc_prusa_config_t pr = {0};
+    (void)dc_prusa_get_config(&pr);
+    bool prusa_changed = false;
+    if (request.pr_host.present) {
+        snprintf(pr.host, sizeof pr.host, "%s", request.pr_host.value ? request.pr_host.value : "");
+        prusa_changed = true;
+    }
+    if (request.pr_key.present && request.pr_key.value && request.pr_key.value[0]) {
+        snprintf(pr.api_key, sizeof pr.api_key, "%s", request.pr_key.value);
+        prusa_changed = true;
+    }
+    if (prusa_changed) {
+        err = dc_prusa_set_config(&pr);
+        if (err != ESP_OK) return persistence_error("Prusa", err, message, message_size);
+    }
+
     // Source is deliberately last: an invalid or failed config save can never bind
     // a different controller. Selecting None changes only this enum; credentials stay.
     if (plan.source_changed) {
@@ -492,7 +525,7 @@ static esp_err_t apply_product(const cJSON *values, void *ctx, char *message, si
     }
 
     bool changed = plan.moonraker_changed || plan.bambu_changed || plan.ha_changed ||
-                   plan.klipper_mqtt_changed || plan.source_changed;
+                   plan.klipper_mqtt_changed || plan.source_changed || prusa_changed;
     snprintf(message, message_size, changed
              ? "Configuration saved; restart to apply source changes."
              : "Configuration already up to date.");
