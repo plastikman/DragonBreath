@@ -11,10 +11,16 @@ Depends on: [RFC 0001](0001-dragon-integration-planes.md)
 
 Simple Dragon peripherals may use ESP-NOW to avoid Wi-Fi association and continuous
 IP-stack costs. Battery-powered switches, filament sensors, buttons, environmental
-probes, and indicators communicate with a powered ESP32 gateway. The gateway may
-expose them to Klipper through an extension of
-[`klipper-esp32`](https://github.com/justinh-rahb/klipper-esp32), to Dragon products
-through the peer capability plane, or to both through explicit adapters.
+probes, and indicators communicate with a powered ESP32 gateway.
+
+The existing `klipper-esp32`
+[`codex/transport-abstraction`](https://github.com/justinh-rahb/klipper-esp32/tree/codex/transport-abstraction)
+branch already validates one form of this fabric: a continuously connected C3 Klipper
+MCU carries its bidirectional byte stream over reliable ESP-NOW through an S3 USB
+bridge. This RFC distinguishes that working **wireless MCU stream** from a future
+**sleeping battery leaf** protocol; the latter has different availability and power
+semantics and may require a capability adapter rather than a continuous Klipper MCU
+session.
 
 This fabric is optimized for power, installation, and bounded stale-state behavior.
 It is not a heater interlock or deterministic actuator bus.
@@ -30,6 +36,11 @@ Good candidates include:
 - battery level and accessory-health telemetry; and
 - low-duty indicators where delayed or lost updates are non-hazardous.
 
+Some candidates can remain continuously connected as Klipper MCUs. Others need to
+wake, report state, and sleep for long intervals. The RFC does not assume those two
+operating models can share an unchanged application protocol merely because both use
+ESP-NOW.
+
 Excluded from this RFC:
 
 - the sole cutoff for a heater or hazardous motor;
@@ -39,6 +50,14 @@ Excluded from this RFC:
   [RFC 0004](0004-peer-capability-plane.md).
 
 ## Proposed topology
+
+The existing connected-MCU prototype is:
+
+```text
+Klipper host ⇄ S3 native-USB bridge ⇄ reliable ESP-NOW ⇄ C3 Klipper MCU
+```
+
+The proposed sleeping-leaf shape is:
 
 ```text
 ┌─────────────────┐       ESP-NOW       ┌────────────────────────┐
@@ -55,6 +74,32 @@ The initial topology should be leaf-to-gateway, not arbitrary mesh. A gateway ca
 support several leaves, but every extra routing role increases awake time, state, and
 failure complexity.
 
+## Existing ESP-NOW prototype
+
+At
+[`bfb5d9b`](https://github.com/justinh-rahb/klipper-esp32/commit/bfb5d9baad3350b3a18d05e73e3334a871c5dade),
+the `codex/transport-abstraction` branch is eight commits ahead of the current
+`klipper-esp32` main branch. It adds:
+
+- a transport abstraction beneath the Klipper console;
+- coordinator/node diagnostic profiles and bridge/remote stream profiles;
+- a bounded version-1 binary frame with source, destination, sequence,
+  acknowledgement, type, flags, CRC, and up to 192 bytes of payload;
+- discovery and one-second heartbeats;
+- one reliable DATA frame in flight per direction;
+- protocol acknowledgements, duplicate suppression, a 100 ms ACK deadline, and three
+  bounded retransmissions;
+- queue, decode, delivery, duplicate, acknowledgement, timeout, and RSSI diagnostics;
+- host tests for frame and transport behavior; and
+- hardware probes that carry the real Klipper dictionary/queries through the bridge
+  and drive a remote C3 GPIO8 NeoPixel blink and color wipe.
+
+The branch explicitly scopes this first stream to protocol bring-up, not motion or
+heater control. It does not yet establish production pairing, per-peer authentication,
+encrypted application identity, multiple leaves, deep-sleep behavior, WLAN channel
+coexistence, or a battery power budget. Those are RFC requirements rather than reasons
+to ignore the working transport.
+
 ## Why ESP-NOW
 
 ESP-NOW can exchange small frames without joining an access point, acquiring an IP
@@ -69,9 +114,16 @@ nodes.
 
 ## Roles
 
-### Leaf
+### Continuously connected MCU node
 
-A leaf owns its physical sensor or indicator and should:
+A connected node runs `klipper-esp32` and keeps a reliable byte stream through the
+gateway. Klipper owns its configuration and availability semantics. This is the model
+already demonstrated by the bridge/remote profiles and is appropriate only where the
+node can remain awake and responsive.
+
+### Sleeping leaf
+
+A sleeping leaf owns its physical sensor or indicator and should:
 
 - wake on a timer or hardware event;
 - report a complete current state, not only edges;
@@ -95,8 +147,16 @@ A powered gateway should:
 
 ## Proposed message properties
 
-The first protocol should be binary and bounded rather than open-ended JSON. A frame
-needs, at minimum:
+The existing version-1 transport frame is already binary and bounded. It supplies the
+link fields needed to carry a reliable Klipper byte stream:
+
+```text
+version / type / flags / source / destination / sequence / acknowledgement /
+payload length / payload / CRC
+```
+
+A sleeping semantic leaf needs application state that the raw byte stream does not
+define. Its messages need, at minimum:
 
 | Field | Purpose |
 |---|---|
@@ -110,8 +170,10 @@ needs, at minimum:
 | optional sample age | describe sampling delay; gateway still uses receipt time |
 | authentication data | integrity and peer authentication |
 
-The exact encoding, key management, and ESP-NOW encryption use remain open. Version 1
-should reserve extension space without creating an unbounded generic object model.
+The exact encoding, key management, and ESP-NOW encryption use remain open. The
+sleeping-leaf protocol may reuse the transport frame after adding the necessary session
+and trust behavior, but it should not overload a raw Klipper stream with an unbounded
+generic object model.
 
 ## State and event semantics
 
@@ -161,14 +223,14 @@ cannot survive arbitrary AP channel changes.
 The current Dragon-maintained `klipper-esp32` project is an experimental ESP-IDF port
 of Klipper MCU firmware derived from
 [`nikhil-robinson/klipper_esp32`](https://github.com/nikhil-robinson/klipper_esp32).
-Its documented transports are native USB Serial/JTAG and UART; it does not currently
-claim ESP-NOW transport. It already supports useful leaf building blocks including
-scheduled digital output, ADC, hardware I²C, LEDC PWM, and RMT NeoPixel output.
+The main branch documents native USB Serial/JTAG and UART transports and useful
+peripheral building blocks including scheduled digital output, ADC, hardware I²C,
+LEDC PWM, and RMT NeoPixel output. Its `codex/transport-abstraction` branch adds the
+working reliable ESP-NOW stream described above.
 
-This RFC therefore proposes new ESP-NOW transport/gateway work around that project; it
-does not describe a feature that has already landed. `klipper-esp32` is a candidate
-Klipper-facing implementation, not automatically the wire contract for every Dragon
-leaf. Before acceptance, a prototype should establish:
+The branch makes `klipper-esp32` the demonstrated implementation for a continuously
+connected wireless MCU. It is not automatically the application contract for a
+sleeping Dragon leaf. Before acceptance, follow-up work should establish:
 
 - whether each leaf presents as a Klipper MCU or the gateway aggregates leaves;
 - where timing, pin configuration, and restart semantics live;
@@ -177,9 +239,10 @@ leaf. Before acceptance, a prototype should establish:
   Klipper host; and
 - which functionality belongs in dragon-core versus an integration repository.
 
-The likely boundary is a small leaf protocol plus a gateway adapter. The adapter can
-translate eligible capabilities into Klipper objects while preserving native Dragon
-telemetry for other consumers.
+One possible boundary is to retain the existing reliable stream unchanged for
+connected Klipper MCUs and add a small sleeping-leaf protocol plus gateway adapter for
+battery devices. The adapter can translate eligible capabilities into Klipper objects
+while preserving native Dragon telemetry for other consumers.
 
 ## Power model and prototype evidence
 
@@ -197,6 +260,8 @@ report should include:
 
 ## Acceptance criteria for an implementation
 
+- The existing bridge/remote hardware probe remains reproducible and its reliability
+  counters are captured under packet loss and reconnect tests.
 - Pairing binds one stable leaf identity to an explicit gateway.
 - Authenticated frames reject modification, replay, and stale boot sessions.
 - A lost transition is repaired by periodic full-state publication.
@@ -208,6 +273,8 @@ report should include:
 - No acceptance test uses this radio path as the sole hazardous-actuator cutoff.
 - Klipper exposure and Dragon peer exposure preserve the same leaf identity and
   freshness rather than creating unrelated duplicate devices.
+- Documentation distinguishes continuously connected Klipper nodes from sleeping
+  semantic leaves and does not apply battery-life claims from one to the other.
 
 ## Non-goals
 
@@ -216,16 +283,20 @@ report should include:
 - Guaranteed delivery of every event.
 - Cloud provisioning.
 - Treating a friendly name or MAC address as authorization.
-- Committing to `klipper-esp32` internals before a gateway prototype is measured.
+- Treating the existing experimental branch as production-ready for motion, heaters,
+  pairing, or battery operation.
 
 ## Feedback requested
 
-1. Should leaves speak a Dragon-specific bounded protocol with a Klipper adapter, or
-   can `klipper-esp32` cleanly provide the common wire contract?
-2. Should the gateway aggregate leaves as one MCU or expose one logical MCU per leaf?
-3. Which pairing UX works on products with and without a screen?
-4. What heartbeat and retry ranges are realistic for door, filament, and environmental
+1. Should the reliable ESP-NOW stream remain the connected-MCU path while sleeping
+   leaves use a smaller Dragon capability protocol?
+2. Can the existing transport frame safely become their common link envelope, or
+   should sleeping leaves use a separate format?
+3. Should the gateway aggregate sleeping leaves as one MCU, expose one logical MCU per
+   leaf, or publish them only as Dragon peer capabilities?
+4. Which pairing UX works on products with and without a screen?
+5. What heartbeat and retry ranges are realistic for door, filament, and environmental
    sensor classes?
-5. Which battery hardware should be the reference platform so power claims are
+6. Which battery hardware should be the reference platform so power claims are
    reproducible?
-6. How should a Wi-Fi-connected gateway communicate channel changes to sleeping leaves?
+7. How should a Wi-Fi-connected gateway communicate channel changes to sleeping leaves?
