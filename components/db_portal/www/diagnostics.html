@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="/favicon.ico">
+<title>DragonBreath diagnostics</title>
+<style>
+:root{color-scheme:light dark;--bg:light-dark(#fff,#181818);--fg:light-dark(#1a1c1f,#fff);--card:color-mix(in oklab,var(--fg) 5%,transparent);--primary:light-dark(#339cff,#83c3ff);--muted:light-dark(#1a1c1f7e,#ffffff7f);--border:light-dark(#1a1c1f15,#ffffff15);--input:light-dark(#1a1c1f1e,#00000022);--warn:light-dark(#b85c00,#ffb067);--bad:light-dark(#c33d1d,#ff856c);--ok:light-dark(#248345,#74d58b);--ring:var(--primary);font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font-family)}a{color:var(--primary)}button,input{font:inherit}button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--ring);outline-offset:3px}.shell{width:min(980px,100%);margin:auto;padding:16px}.top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px}.top h1{font-size:1.2rem;margin:0}.subtle,.description,.ct-description,.ct-disabled-reason,.ct-status{color:var(--muted)}.status-line{margin-top:4px;font-size:.85rem}.panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin:10px 0}.panel h2{font-size:.78rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}.instrument{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.reading{background:var(--input);border-radius:8px;padding:10px;min-height:78px}.reading .label{font-size:.72rem;color:var(--muted);text-transform:uppercase}.reading .value{font-size:1.18rem;font-weight:700;margin-top:5px;overflow-wrap:anywhere}.reading .detail{font-size:.78rem;font-weight:400;color:var(--muted);margin-top:3px}.reading.wide{grid-column:span 2}.reading.full{grid-column:1/-1}.state-chip{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:999px;padding:4px 9px;font-weight:700}.state-chip.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--border))}.state-chip.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--border))}.state-chip.ok{color:var(--ok)}#trend{display:block;width:100%;height:220px;background:var(--input);border-radius:8px}.legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;color:var(--muted);font-size:.78rem}.legend span::before{content:"";display:inline-block;width:12px;height:3px;margin-right:5px;vertical-align:middle;border-radius:2px}.legend .pv::before{background:var(--primary)}.legend .target::before{background:var(--ok)}.legend .ptc::before{background:var(--warn)}.legend .duty::before{background:var(--muted)}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.button{border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--fg);min-height:38px;padding:0 12px;cursor:pointer}.button.primary{background:var(--fg);color:var(--bg)}.button:disabled{opacity:.5;cursor:not-allowed}.consequential-toggle{display:grid;gap:6px}.ct-row{display:flex;align-items:center;justify-content:space-between;gap:16px}.ct-copy{min-width:0}.ct-label{font-weight:700}.ct-description,.ct-disabled-reason,.ct-status{margin:3px 0 0;font-size:.85rem}.ct-status.is-error{color:var(--bad)}.ct-input{appearance:none;flex:0 0 auto;width:46px;height:26px;border:0;border-radius:999px;background:var(--muted);cursor:pointer;position:relative}.ct-input::after{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:white;box-shadow:0 1px 3px #0006;transition:transform .15s}.ct-input:checked{background:var(--primary)}.ct-input:checked::after{transform:translateX(20px)}.ct-input:disabled{cursor:not-allowed;opacity:.5}.ct-dialog{width:min(470px,calc(100vw - 28px));padding:0;border:1px solid var(--border);border-radius:12px;background:var(--bg);color:var(--fg);box-shadow:0 20px 70px #000b}.ct-dialog::backdrop{background:#000c}.ct-dialog-panel{padding:20px}.ct-dialog-panel[data-severity=warning]{border-top:4px solid var(--warn)}.ct-dialog-title{font-size:1.15rem;margin:0}.ct-dialog-body{white-space:pre-line;color:var(--muted);margin:10px 0 18px}.ct-dialog-actions{display:flex;justify-content:flex-end;gap:8px}.advanced summary{cursor:pointer;font-weight:700}.advanced-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}.advanced-grid div{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border);padding:5px 0}.advanced-grid dt{color:var(--muted)}.advanced-grid dd{margin:0;text-align:right;overflow-wrap:anywhere}.footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:14px}
+@media(max-width:650px){.instrument{grid-template-columns:repeat(2,minmax(0,1fr))}.reading.wide,.reading.delivered-reading{grid-column:span 2}.advanced-grid{grid-template-columns:1fr}#trend{height:180px}.shell{padding:12px}.ct-dialog-actions{flex-direction:column-reverse}.ct-dialog-actions .button{width:100%}}
+</style>
+<script src="/ui/consequential-toggle.js" defer></script>
+</head>
+<body>
+<main class="shell">
+  <header class="top"><div><h1>DragonBreath instrument panel</h1><div class="status-line" id="connection">Connecting…</div></div><a href="/">Back to controls</a></header>
+
+  <section class="panel" aria-labelledby="control-heading">
+    <h2 id="control-heading">Control loop</h2>
+    <div class="instrument">
+      <div class="reading wide"><div class="label">Controller and temperature input</div><div class="value" id="control-source">—</div><div class="detail" id="control-temperature">—</div></div>
+      <div class="reading"><div class="label">Temperature target</div><div class="value" id="target">—</div></div>
+      <div class="reading"><div class="label">Operating mode</div><div class="value" id="mode">—</div></div>
+      <div class="reading"><div class="label">Requested by controller</div><div class="value" id="request">—</div></div>
+      <div class="reading"><div class="label">Allowed after limits</div><div class="value" id="allowed">—</div></div>
+      <div class="reading delivered-reading"><div class="label">SSR output (actual)</div><div class="value" id="delivered">—</div></div>
+      <div class="reading wide constraint-reading"><div class="label">Active output constraint</div><div class="value"><span class="state-chip" id="constraint">—</span></div></div>
+      <div class="reading full"><div class="label">Operating status</div><div class="value"><span class="state-chip" id="safety">—</span></div></div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="trend-heading">
+    <h2 id="trend-heading">Trend</h2>
+    <canvas id="trend" role="img" aria-label="Recent process temperature, target, element temperature, and heater duty"></canvas>
+    <div class="legend"><span class="pv">Controlling temperature</span><span class="target">Target</span><span class="ptc">Element / PTC</span><span class="duty">Allowed heater output</span></div>
+    <div class="actions"><button class="button" type="button" id="download">Download CSV</button><button class="button" type="button" id="clear">Clear trend</button><span class="subtle" id="sample-count">0 samples</span></div>
+  </section>
+
+  <section class="panel" aria-labelledby="automation-heading">
+    <h2 id="automation-heading">Optional automation</h2>
+    <div id="filter-toggle"></div>
+  </section>
+
+  <details class="panel advanced">
+    <summary>Advanced details</summary>
+    <dl class="advanced-grid">
+      <div><dt>Preferred temperature source</dt><dd id="advanced-config-source">—</dd></div>
+      <div><dt>Local chamber NTC</dt><dd id="advanced-local">—</dd></div>
+      <div><dt>Printer chamber telemetry</dt><dd id="advanced-printer">—</dd></div>
+      <div><dt>Element / PTC</dt><dd id="advanced-ptc">—</dd></div>
+      <div><dt>Fan</dt><dd id="advanced-fan">—</dd></div>
+    </dl>
+  </details>
+  <div class="footer" id="device-meta"></div>
+</main>
+<script>
+(function(){
+  'use strict';
+  var samples=[], started=null, maxSamples=900, pollTimer=null, eventSource=null;
+  function $(id){return document.getElementById(id);}function finite(v){return typeof v==='number'&&isFinite(v);}function c(v){return finite(v)?v.toFixed(1)+' °C':'—';}function pct(v){return finite(v)?Math.round(v*100)+'%':'—';}
+  function setChip(id,textValue,kind){var node=$(id);node.textContent=textValue;node.className='state-chip'+(kind?' '+kind:'');}
+  function sourceLabel(value){return value==='bambu'?'Bambu chamber telemetry':value==='local_ntc'?'local chamber NTC':value==='unavailable'?'no valid temperature source':String(value||'unknown source');}
+  function controllerLabel(value){return value==='bang_bang'?'Bang-bang':value==='pid'?'PID':String(value||'Unknown controller');}
+  function modeLabel(value){var labels={off:'Off',manual:'Manual',auto:'Automatic',drying:'Drying'};return labels[value]||String(value||'Unknown');}
+  function constraintLabel(value){var labels={none:'NORMAL — no output limit',idle:'IDLE — no heat requested',local_chamber_foldback:'LOCAL CHAMBER FOLDBACK',element_foldback:'ELEMENT FOLDBACK',safety_inhibited:'SAFETY INHIBITED'};return labels[value]||String(value||'UNKNOWN').replace(/_/g,' ').toUpperCase();}
+  function apply(state){
+    if(!state||state.api_version!==2)return;var loop=((state.control||{}).loop)||{},safety=state.safety||{},env=state.environment||{},heater=state.heater||{};
+    var fallback=loop.preferred_source==='bambu'&&loop.effective_source==='local_ntc'&&state.mode==='auto';
+    $('control-source').textContent=controllerLabel(loop.controller)+' using '+sourceLabel(loop.effective_source);
+    $('control-temperature').textContent='Controlling temperature: '+c(loop.process_variable_c)+(fallback?' · preferred Bambu telemetry unavailable':'');
+    $('target').textContent=c((state.target||{}).effective_c);$('mode').textContent=modeLabel(state.mode);$('request').textContent=pct(loop.controller_request);$('allowed').textContent=pct(loop.allowed_output);$('delivered').textContent=heater.output?'ON':'OFF';
+    var constraint=loop.constraint||'none';
+    setChip('constraint',constraintLabel(constraint),constraint==='none'||constraint==='idle'?'ok':constraint==='safety_inhibited'?'bad':'warn');
+    var faulted=!!safety.fault_latched,inhibited=!!safety.inhibited||constraint==='safety_inhibited',reason=safety.reason||'reason unavailable';
+    var limited=constraint!=='none'&&constraint!=='idle'&&constraint!=='safety_inhibited';
+    setChip('safety',faulted?('FAULT — '+reason):inhibited?('SAFETY INHIBITED — '+reason):fallback?'DEGRADED — using local NTC fallback':limited?('LIMITED — '+constraintLabel(constraint).toLowerCase()):'NORMAL',faulted||inhibited?'bad':fallback||limited?'warn':'ok');
+    $('advanced-config-source').textContent=sourceLabel(loop.preferred_source);$('advanced-local').textContent=c(((state.sensors||{}).chamber||{}).temperature_c);$('advanced-printer').textContent=c(env.printer_chamber_temperature_c);$('advanced-ptc').textContent=c(((state.sensors||{}).ptc||{}).temperature_c);$('advanced-fan').textContent=((state.fan||{}).effective_percent||0)+'% · '+((state.fan||{}).reason||'off');
+    var now=Date.now()/1000;if(started===null)started=now;samples.push({t:now-started,pv:loop.process_variable_c,target:(state.target||{}).effective_c,ptc:((state.sensors||{}).ptc||{}).temperature_c,duty:loop.allowed_output,controller:loop.controller||'',source:loop.effective_source||'',constraint:constraint,mode:state.mode||''});if(samples.length>maxSamples)samples.shift();$('sample-count').textContent=samples.length+' samples';draw();
+  }
+  function draw(){var canvas=$('trend'),ratio=window.devicePixelRatio||1,w=canvas.clientWidth||600,h=canvas.clientHeight||220;canvas.width=w*ratio;canvas.height=h*ratio;var x=canvas.getContext('2d');x.scale(ratio,ratio);x.clearRect(0,0,w,h);var left=36,right=38,top=8,bottom=18,plotW=Math.max(1,w-left-right),plotH=Math.max(1,h-top-bottom),dark=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches,colors=dark?{grid:'#666',pv:'#83c3ff',target:'#74d58b',ptc:'#ffb067',duty:'#d0d0d0'}:{grid:'#777',pv:'#1677c8',target:'#248345',ptc:'#b85c00',duty:'#555'};if(samples.length<2)return;var maxTemp=40;samples.forEach(function(s){['pv','target','ptc'].forEach(function(k){if(finite(s[k]))maxTemp=Math.max(maxTemp,s[k]);});});maxTemp=Math.ceil(maxTemp/10)*10;x.font='10px sans-serif';x.fillStyle=colors.grid;x.strokeStyle=colors.grid;x.lineWidth=.5;x.textBaseline='middle';[0,.5,1].forEach(function(f){var y=top+(1-f)*plotH;x.beginPath();x.moveTo(left,y);x.lineTo(left+plotW,y);x.stroke();x.textAlign='right';x.fillText(Math.round(maxTemp*f)+'°C',left-4,y);x.textAlign='left';x.fillText(Math.round(f*100)+'%',left+plotW+4,y);});function px(i){return left+i*plotW/(samples.length-1);}function py(v){return top+(1-v/maxTemp)*plotH;}function line(key,color){x.beginPath();x.strokeStyle=color;x.lineWidth=2;x.setLineDash([]);var begun=false;samples.forEach(function(s,i){var v=s[key];if(!finite(v)){begun=false;return;}if(!begun){x.moveTo(px(i),py(v));begun=true;}else{x.lineTo(px(i),py(v));}});x.stroke();}line('pv',colors.pv);line('target',colors.target);line('ptc',colors.ptc);x.beginPath();x.strokeStyle=colors.duty;x.lineWidth=1.5;x.setLineDash([5,3]);var dutyBegun=false;samples.forEach(function(s,i){if(!finite(s.duty)){dutyBegun=false;return;}var y=top+(1-s.duty)*plotH;if(!dutyBegun){x.moveTo(px(i),y);dutyBegun=true;}else{x.lineTo(px(i),y);}});x.stroke();x.setLineDash([]);}
+  function poll(){fetch('/api/v2/state',{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(s){apply(s);$('connection').textContent='Telemetry: polling';}).catch(function(){$('connection').textContent='Telemetry unavailable — retrying';}).finally(function(){pollTimer=setTimeout(poll,2000);});}
+  function events(){eventSource=new EventSource('/api/v2/events');function receive(event){try{apply(JSON.parse(event.data));$('connection').textContent='Telemetry: live';}catch(_){}}eventSource.addEventListener('state',receive);eventSource.addEventListener('telemetry',receive);eventSource.onerror=function(){eventSource.close();eventSource=null;$('connection').textContent='Live stream unavailable — switching to polling';poll();};}
+  function json(path,options){return fetch(path,options||{}).then(function(r){return r.text().then(function(body){var data={};try{data=body?JSON.parse(body):{};}catch(_){}if(!r.ok)throw new Error(data.message||data.error||('HTTP '+r.status));return data;});});}
+  function auth(){return localStorage.getItem('db_tok')||'web';}
+  function filterState(value){return{value:value===true,disabled:false,disabledReason:''};}
+  window.addEventListener('DOMContentLoaded',function(){
+    DBConsequentialToggle.mount($('filter-toggle'),{
+      id:'automatic-filtration',label:'Automatic filtration',description:'Allow the chamber blower to follow the printer bed target while the heater is idle.',pendingMessage:'Saving automatic filtration…',successMessage:'Automatic filtration state reconciled with DragonBreath.',
+      read:function(){return json('/settings',{cache:'no-store'}).then(function(s){return filterState(s.filter_auto);});},
+      confirm:function(requested,state){if(!requested)return null;return{severity:'warning',title:'Enable automatic filtration?',body:'DragonBreath will run the chamber blower whenever Moonraker is connected and the printer bed target reaches the saved filtration threshold, even while the heater is idle.\n\nThe saved threshold is retained if you turn automatic filtration off later.',cancelLabel:'Cancel',confirmLabel:'Enable filtration'};},
+      mutate:function(requested){return json('/settings?filter_auto='+(requested?1:0),{method:'POST',headers:{'X-DragonBreath-Auth':auth()}}).then(function(s){return filterState(s.filter_auto);});}
+    });
+    fetch('/api/v2/info',{cache:'no-store'}).then(function(r){return r.json();}).then(function(info){$('device-meta').textContent='DragonBreath '+(info.firmware||'')+' · '+(info.device_id||'');}).catch(function(){});
+    fetch('/api/v2/state',{cache:'no-store'}).then(function(r){return r.json();}).then(apply).catch(function(){}).finally(events);
+  });
+  $('clear').addEventListener('click',function(){samples=[];started=null;$('sample-count').textContent='0 samples';draw();});window.addEventListener('resize',draw);
+  $('download').addEventListener('click',function(){var rows=['t_s,process_variable_c,target_c,ptc_c,allowed_output,controller,effective_source,constraint,mode'];samples.forEach(function(s){rows.push([s.t.toFixed(1),finite(s.pv)?s.pv.toFixed(1):'',finite(s.target)?s.target.toFixed(1):'',finite(s.ptc)?s.ptc.toFixed(1):'',finite(s.duty)?s.duty.toFixed(4):'',s.controller,s.source,s.constraint,s.mode].join(','));});var blob=new Blob([rows.join('\n')+'\n'],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='dragonbreath-control-diagnostics.csv';a.click();setTimeout(function(){URL.revokeObjectURL(a.href);},1000);});
+}());
+</script>
+</body>
+</html>

@@ -32,6 +32,27 @@ typedef enum {
                                   // corrupt and mapped to a generic latched fault
 } pb_fault_reason_t;
 
+// Read-only, controller-agnostic explanation of the latest control tick. This is
+// diagnostics only: it mirrors decisions already made by the heater and never
+// participates in control or safety policy.
+typedef enum {
+    PB_HEATER_CONSTRAINT_NONE = 0,
+    PB_HEATER_CONSTRAINT_IDLE,
+    PB_HEATER_CONSTRAINT_LOCAL_FOLDBACK,
+    PB_HEATER_CONSTRAINT_ELEMENT_FOLDBACK,
+    PB_HEATER_CONSTRAINT_SAFETY_INHIBITED,
+} pb_heater_constraint_t;
+
+typedef struct {
+    bool preferred_external;
+    bool effective_external;
+    bool process_variable_valid;
+    float process_variable_c;
+    float controller_request; // normalized request before product foldbacks
+    float allowed_output;     // normalized request after product foldbacks
+    pb_heater_constraint_t constraint;
+} pb_heater_control_snapshot_t;
+
 // Pure fail-safe decision for the boot-time fault restore (pb_heater_load_fault),
 // inline so it can be host-tested without an NVS backend. Given the outcome of
 // reading the persisted latch/code, decides whether to come up latched and with
@@ -219,6 +240,11 @@ float pb_heater_get_target_c(void);
 // remain authoritative for over-temperature trips, sensor-fault detection, and
 // all other safety decisions regardless of this value.
 void pb_heater_set_control_chamber_c(float temp_c);
+
+// Mirror the separately persisted Bambu preference into diagnostics. Eligibility
+// and source selection remain entirely product-owned by app_main/pb_policy.
+void pb_heater_set_external_preference(bool enabled);
+void pb_heater_get_control_snapshot(pb_heater_control_snapshot_t *snapshot);
 
 // --- Runtime-configurable, persisted settings (pb_heater is the sole owner) ---
 // Load persisted settings from NVS (namespace app_nvs). MUST be called AFTER

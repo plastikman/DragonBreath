@@ -71,6 +71,9 @@ jobs:
       - name: Test portal config validation and change planning
         run: sh tests/run_db_portal_config_host_test.sh
 
+      - name: Test consequential-toggle UI state machine
+        run: node tests/consequential_toggle_ui_test.mjs
+
       - name: Test HIL scenario runner
         run: python3 -m unittest tests/test_hil_runner.py
 

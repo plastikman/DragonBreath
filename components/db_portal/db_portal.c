@@ -56,6 +56,10 @@ static esp_err_t bambu_direct_chamber_control_set(bool enabled)
 
 extern const unsigned char favicon_png_start[] asm("_binary_favicon_png_start");
 extern const unsigned char favicon_png_end[] asm("_binary_favicon_png_end");
+extern const unsigned char diagnostics_html_start[] asm("_binary_diagnostics_html_start");
+extern const unsigned char diagnostics_html_end[] asm("_binary_diagnostics_html_end");
+extern const unsigned char consequential_toggle_js_start[] asm("_binary_consequential_toggle_js_start");
+extern const unsigned char consequential_toggle_js_end[] asm("_binary_consequential_toggle_js_end");
 
 // ---- product-local diagnostics page (/diag) ---------------------------------
 // The shared dc_ui SPA owns the dashboard and dc_portal owns the generic /console;
@@ -64,141 +68,26 @@ extern const unsigned char favicon_png_end[] asm("_binary_favicon_png_end");
 // since dc_portal owns the shared head. Restored after the pb_portal->db_portal
 // extraction dropped it.
 
-static const char PAGE_HEAD[] =
-    "<!doctype html><html lang=en><head><meta charset=utf-8>"
-    "<meta name=viewport content='width=device-width,initial-scale=1'>"
-    "<meta name=color-scheme content='light dark'><meta name=referrer content=no-referrer>"
-    "<link rel=icon href=/favicon.ico>"
-    "<title>DragonBreath</title><style>"
-    ":root{color-scheme:light dark;"
-    "--text:light-dark(rgb(26 28 31),rgb(255 255 255));"
-    "--bg:light-dark(rgb(255 255 255),rgb(24 24 24));"
-    "--card:color-mix(in oklab,var(--text) 5%,transparent);"
-    "--accent:light-dark(rgb(51 156 255),rgb(131 195 255));"
-    "--accent-fg:light-dark(rgb(255 255 255),rgb(13 13 13));"
-    "--muted:light-dark(rgb(26 28 31 / 49.4%),rgb(255 255 255 / 49.8%));"
-    "--input:light-dark(rgb(26 28 31 / 11.8%),color-mix(in oklab,rgb(0 0 0) 10%,transparent));"
-    "--border:light-dark(rgb(26 28 31 / 8%),rgb(255 255 255 / 8.2%));"
-    "--bad:light-dark(rgb(226 85 7),rgb(255 133 73))}"
-    ":root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}"
-    "*{box-sizing:border-box}"
-    "body{margin:0;background:var(--bg);color:var(--text);"
-    "font:14px/1.4 -apple-system,system-ui,'Segoe UI',Roboto,sans-serif}"
-    ".wrap{max-width:28em;margin:0 auto;padding:16px}"
-    ".card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin:14px 0}"
-    ".card h2{margin:0 0 .3em;font-size:1rem;font-weight:600}"
-    "button.go{width:100%;padding:13px;margin-top:8px;border:0;border-radius:9px;background:var(--accent);color:var(--accent-fg);font-size:1rem;font-weight:600;cursor:pointer}"
-    "button.sec{width:100%;padding:10px;margin-top:12px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text);cursor:pointer}"
-    ".warn{color:var(--bad);font-weight:700}"
-    "small{color:var(--muted)}a{color:var(--accent)}h3{margin:.2em 0}"
-    "code{font-size:.9em;overflow-wrap:anywhere}</style>"
-    "<script>var _t=localStorage.getItem('db_theme');"
-    "if(_t==='light'||_t==='dark')document.documentElement.setAttribute('data-theme',_t);</script>"
-    "</head><body>";
-
-static const char WRAP_OPEN[] = "<div class=wrap>";
-
-static void send_version_inject(httpd_req_t *req)
+static esp_err_t embedded_text(httpd_req_t *req, const char *content_type,
+                               const unsigned char *start,
+                               const unsigned char *end)
 {
-    char b[128];
-    snprintf(b, sizeof b, "<script>window.DB_VER=\"%s\";</script>",
-             esp_app_get_description()->version);
-    SEND(req, b);
+    httpd_resp_set_type(req, content_type);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, (const char *)start, (size_t)(end - start));
 }
-
-// Diagnostics page (GET /diag): the tools/diag.py logger in the browser. Pure
-// client-side over the read-only SSE stream (/api/v2/events) + /api/v2/info — no
-// new device state, no persistence. Shows chamber/element temps, SSR output, mode,
-// fault, a running element-temp peak, a live trend, and a client-side CSV download.
-static const char DIAG_BODY[] =
-    "<style>"
-    ".dgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:.6em 0}"
-    ".dgrid>div{background:var(--input);border-radius:8px;padding:10px}"
-    ".dlab{font-size:.72rem;color:var(--muted)}"
-    ".dval{font-size:1.2rem;font-weight:700;margin-top:2px}"
-    ".dval.warn{color:var(--bad)}"
-    "#d-chart{display:block;width:100%;height:120px;background:var(--input);border-radius:8px;margin:.5em 0}"
-    ".drow{display:flex;gap:8px}.drow button{flex:1;margin-top:0}"
-    "</style>"
-    "<div class=card><h2>Diagnostics</h2>"
-    "<div id=d-meta><small>connecting\xE2\x80\xA6</small></div>"
-    "<div class=dgrid>"
-    "<div><div class=dlab>Chamber</div><div class=dval id=d-ch>--</div></div>"
-    "<div><div class=dlab>Element (PTC)</div><div class=dval id=d-ptc>--</div></div>"
-    "<div><div class=dlab>Peak element</div><div class=dval id=d-peak>--</div></div>"
-    "<div><div class=dlab>SSR output</div><div class=dval id=d-ssr>--</div></div>"
-    "<div><div class=dlab>Mode</div><div class=dval id=d-mode>--</div></div>"
-    "<div><div class=dlab>Fault</div><div class=dval id=d-fault>--</div></div>"
-    "</div>"
-    "<canvas id=d-chart></canvas>"
-    "<div style='display:flex;justify-content:space-between;align-items:center'>"
-    "<small><span style='color:#3399ff'>\xE2\x97\x8F</span> chamber "
-    "<span style='color:#ff8a49'>\xE2\x97\x8F</span> element</small>"
-    "<small id=d-stat>0 samples</small></div>"
-    "<div class=drow style='margin-top:10px'>"
-    "<button type=button class=go id=d-dl>Download CSV</button>"
-    "<button type=button class=sec id=d-clear>Clear</button>"
-    "</div></div>"
-    "<p style='text-align:center'><small><a href='/'>\xE2\x86\x90 Back to status</a></small></p>"
-    "<div id=ver style='text-align:center;color:var(--muted);font-size:.72rem;margin-top:2px'></div>"
-    "<script>(function(){"
-    "var peak=0,samples=[],t0=null,MAX=900;"
-    "function $(i){return document.getElementById(i);}"
-    "if(window.DB_VER)$('ver').textContent='DragonBreath '+window.DB_VER;"
-    "fetch('/api/v2/info',{cache:'no-store'}).then(function(r){return r.json();}).then(function(i){"
-    "$('d-meta').innerHTML='<small>device '+i.device_id+' \\u00b7 fw '+i.firmware+' \\u00b7 Rref '+i.rref_kohm+'k</small>';"
-    "}).catch(function(){});"
-    "function f1(x){return (x==null)?'--':Number(x).toFixed(1);}"
-    "function apply(s){"
-    "if(!s||s.api_version!==2)return;"
-    "var ch=s.sensors.chamber,pt=s.sensors.ptc,saf=s.safety||{};"
-    "var chv=ch.temperature_c,ptv=pt.temperature_c,out=!!s.heater.output,fl=!!saf.fault_latched;"
-    "if(ptv!=null&&ptv>peak)peak=ptv;"
-    "$('d-ch').textContent=f1(chv)+' \\u00b0C';"
-    "$('d-ptc').textContent=f1(ptv)+' \\u00b0C'+(pt.status!=='ok'?' ('+pt.status+')':'');"
-    "$('d-peak').textContent=f1(peak)+' \\u00b0C';"
-    "$('d-ssr').textContent=out?'ON':'off';"
-    "$('d-mode').textContent=s.mode;"
-    "var fe=$('d-fault');fe.textContent=fl?('FAULT: '+(saf.reason||'?')):'none';fe.className='dval'+(fl?' warn':'');"
-    "var now=Date.now()/1000;if(t0==null)t0=now;"
-    "samples.push({t:now-t0,ch:chv,pt:ptv,ps:pt.status,o:out?1:0,m:s.mode,fl:fl?1:0,rs:saf.reason||'',pk:peak});"
-    "if(samples.length>MAX)samples.shift();"
-    "$('d-stat').textContent=samples.length+' samples';draw();"
-    "}"
-    "function draw(){"
-    "var c=$('d-chart');var w=c.clientWidth||300,h=120;c.width=w;c.height=h;"
-    "var x=c.getContext('2d');x.clearRect(0,0,w,h);if(samples.length<2)return;"
-    "var mx=1;samples.forEach(function(s){if(s.ch!=null&&s.ch>mx)mx=s.ch;if(s.pt!=null&&s.pt>mx)mx=s.pt;});"
-    "mx=Math.ceil(mx/20)*20;"
-    "function px(i){return i*(w-4)/(samples.length-1)+2;}"
-    "function py(v){return h-4-(v/mx)*(h-8);}"
-    "function ln(k,col){x.beginPath();x.strokeStyle=col;x.lineWidth=1.5;var st=false;"
-    "for(var i=0;i<samples.length;i++){var v=samples[i][k];if(v==null){st=false;continue;}"
-    "if(!st){x.moveTo(px(i),py(v));st=true;}else x.lineTo(px(i),py(v));}x.stroke();}"
-    "ln('pt','#ff8a49');ln('ch','#3399ff');"
-    "}"
-    "$('d-dl').addEventListener('click',function(){"
-    "var r=['t_s,chamber_c,ptc_c,ptc_status,out,mode,fault,reason,peak_c'];"
-    "samples.forEach(function(s){r.push([s.t.toFixed(1),(s.ch==null?'':s.ch.toFixed(1)),(s.pt==null?'':s.pt.toFixed(1)),s.ps,s.o,s.m,s.fl,'\"'+String(s.rs).replace(/\"/g,'\"\"')+'\"',s.pk.toFixed(1)].join(','));});"
-    "var b=new Blob([r.join('\\n')+'\\n'],{type:'text/csv'});"
-    "var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='dragonbreath_diag.csv';a.click();"
-    "setTimeout(function(){URL.revokeObjectURL(a.href);},1000);"
-    "});"
-    "$('d-clear').addEventListener('click',function(){samples=[];peak=0;t0=null;$('d-stat').textContent='0 samples';draw();});"
-    "window.addEventListener('resize',draw);"
-    "var es=new EventSource('/api/v2/events');"
-    "function ev(e){try{apply(JSON.parse(e.data));}catch(_){}}"
-    "es.addEventListener('state',ev);es.addEventListener('telemetry',ev);"
-    "})();</script></body></html>";
 
 static esp_err_t diag_page(httpd_req_t *req)
 {
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
-    SEND(req, PAGE_HEAD);           // header-free (like /fw) — no product header
-    SEND(req, WRAP_OPEN);
-    send_version_inject(req);       // window.DB_VER for the footer
-    SEND(req, DIAG_BODY);
-    return httpd_resp_send_chunk(req, NULL, 0);
+    return embedded_text(req, "text/html; charset=utf-8",
+                         diagnostics_html_start, diagnostics_html_end);
+}
+
+static esp_err_t consequential_toggle_js_get(httpd_req_t *req)
+{
+    return embedded_text(req, "text/javascript; charset=utf-8",
+                         consequential_toggle_js_start,
+                         consequential_toggle_js_end);
 }
 
 static cJSON *field(const char *key, const char *label, const char *type,
@@ -880,6 +769,13 @@ static esp_err_t register_product_routes(httpd_handle_t server, void *ctx)
     if (err != ESP_OK) return err;
     const httpd_uri_t diag = { .uri = "/diag", .method = HTTP_GET, .handler = diag_page };
     err = httpd_register_uri_handler(server, &diag);
+    if (err != ESP_OK) return err;
+    const httpd_uri_t consequential_toggle = {
+        .uri = "/ui/consequential-toggle.js",
+        .method = HTTP_GET,
+        .handler = consequential_toggle_js_get,
+    };
+    err = httpd_register_uri_handler(server, &consequential_toggle);
     if (err != ESP_OK) return err;
     const httpd_uri_t favicon = { .uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_get };
     return httpd_register_uri_handler(server, &favicon);

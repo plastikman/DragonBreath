@@ -93,6 +93,15 @@ The complete snapshot, not locally remembered intent, is the source of truth:
     "filter_auto_enable": true
   },
   "control": {
+    "loop": {
+      "controller": "bang_bang",
+      "preferred_source": "local_ntc",
+      "effective_source": "local_ntc",
+      "process_variable_c": 44.8,
+      "controller_request": 1.0,
+      "allowed_output": 1.0,
+      "constraint": "none"
+    },
     "lease": {
       "active": true,
       "owner": "u1-klippy",

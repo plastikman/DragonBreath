@@ -35,6 +35,8 @@ static bool        s_persist_pending;  // guarded by s_mux — a latch persist n
                                        // to NVS; retried from pb_heater_tick until it lands
 static int64_t     s_persist_retry_us; // guarded by s_mux — last persist-retry timestamp
 static bool        s_on;            // written only by the control task; atomic read
+static bool        s_preferred_external; // guarded by s_mux; diagnostics only
+static pb_heater_control_snapshot_t s_control_diag; // guarded by s_mux; diagnostics only
 static bool        s_heat_intent;   // control-task only — chamber-hysteresis latch (the
                                     // "want heat at all" decision, distinct from the
                                     // momentary SSR state s_on)
@@ -115,6 +117,10 @@ esp_err_t pb_heater_init(void)
     taskENTER_CRITICAL(&s_mux);
     s_target_c = 0.0f;
     s_control_chamber_c = NAN;
+    s_preferred_external = false;
+    s_control_diag = (pb_heater_control_snapshot_t) {
+        .constraint = PB_HEATER_CONSTRAINT_IDLE,
+    };
     s_latched_off = false;
     s_fault_reason = NULL;
     s_fault_code = PB_FAULT_NONE;
@@ -171,6 +177,29 @@ void pb_heater_set_control_chamber_c(float temp_c)
 {
     taskENTER_CRITICAL(&s_mux);
     s_control_chamber_c = isfinite(temp_c) ? temp_c : NAN;
+    taskEXIT_CRITICAL(&s_mux);
+}
+
+void pb_heater_set_external_preference(bool enabled)
+{
+    taskENTER_CRITICAL(&s_mux);
+    s_preferred_external = enabled;
+    s_control_diag.preferred_external = enabled;
+    taskEXIT_CRITICAL(&s_mux);
+}
+
+void pb_heater_get_control_snapshot(pb_heater_control_snapshot_t *snapshot)
+{
+    if (!snapshot) return;
+    taskENTER_CRITICAL(&s_mux);
+    *snapshot = s_control_diag;
+    taskEXIT_CRITICAL(&s_mux);
+}
+
+static void publish_control_snapshot(const pb_heater_control_snapshot_t *snapshot)
+{
+    taskENTER_CRITICAL(&s_mux);
+    s_control_diag = *snapshot;
     taskEXIT_CRITICAL(&s_mux);
 }
 
@@ -541,12 +570,14 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
 
     float   target;
     float   control_chamber_c;
+    bool    preferred_external;
     bool    latched;
     int64_t last_link;
     int64_t comms_timeout_us;
     taskENTER_CRITICAL(&s_mux);
     target = s_target_c;
     control_chamber_c = s_control_chamber_c;
+    preferred_external = s_preferred_external;
     latched = s_latched_off;
     last_link = s_last_link_us;
     comms_timeout_us = s_comms_timeout_us;
@@ -569,7 +600,18 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
     pb_fault_reason_t trip_code = pb_heater_eval_trip(
         ps == PB_NTC_OK, ptc_c, cs == PB_NTC_OK, chamber_c, armed,
         (esp_timer_get_time() - last_link) > comms_timeout_us);
+    bool local_valid = cs == PB_NTC_OK && isfinite(chamber_c);
+    bool external_valid = local_valid && isfinite(control_chamber_c);
+    pb_heater_control_snapshot_t diag = {
+        .preferred_external = preferred_external,
+        .effective_external = external_valid,
+        .process_variable_valid = local_valid,
+        .process_variable_c = external_valid ? control_chamber_c : chamber_c,
+        .constraint = PB_HEATER_CONSTRAINT_NONE,
+    };
     if (trip_code != PB_FAULT_NONE) {
+        diag.constraint = PB_HEATER_CONSTRAINT_SAFETY_INHIBITED;
+        publish_control_snapshot(&diag);
         trip(trip_code);
         return;
     }
@@ -579,6 +621,10 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
         s_heat_intent = false;   // drop the chamber + foldback latches so the next arm
         s_fb_cut      = false;   // starts clean rather than mid-cycle
         s_local_cut   = false;
+        diag.constraint = latched
+            ? PB_HEATER_CONSTRAINT_SAFETY_INHIBITED
+            : PB_HEATER_CONSTRAINT_IDLE;
+        publish_control_snapshot(&diag);
         return;
     }
 
@@ -618,4 +664,10 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
     // is holding it off. (Zero-cross SSR: plain on/off, no phase-cut.)
     bool drive = s_heat_intent && !s_local_cut && !s_fb_cut;
     if (drive != s_on) ssr_set(drive);
+    diag.controller_request = s_heat_intent ? 1.0f : 0.0f;
+    diag.allowed_output = drive ? 1.0f : 0.0f;
+    diag.constraint = s_local_cut ? PB_HEATER_CONSTRAINT_LOCAL_FOLDBACK
+                    : s_fb_cut ? PB_HEATER_CONSTRAINT_ELEMENT_FOLDBACK
+                    : PB_HEATER_CONSTRAINT_NONE;
+    publish_control_snapshot(&diag);
 }

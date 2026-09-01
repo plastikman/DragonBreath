@@ -6,3 +6,5 @@ idf_component_register(
 )
 
 target_add_binary_data(${COMPONENT_LIB} "${COMPONENT_DIR}/www/favicon.png" BINARY)
+target_add_binary_data(${COMPONENT_LIB} "${COMPONENT_DIR}/www/diagnostics.html" TEXT)
+target_add_binary_data(${COMPONENT_LIB} "${COMPONENT_DIR}/www/consequential-toggle.js" TEXT)

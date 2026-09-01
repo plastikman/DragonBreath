@@ -463,6 +463,7 @@ void app_main(void)
     // safety trip can never be lost across a reboot for want of an initialized NVS.
     nvs_init();
     s_bambu_direct_chamber_control = load_bambu_direct_chamber_control();
+    pb_heater_set_external_preference(s_bambu_direct_chamber_control);
     ESP_LOGI(TAG, "Bambu direct chamber control: %s",
              s_bambu_direct_chamber_control ? "enabled" : "disabled");
     pb_heater_load_config();                 // persisted max-target + comms timeout

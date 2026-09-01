@@ -112,6 +112,18 @@ static const char *fan_reason(const pb_policy_snapshot_t *s)
     return "off";
 }
 
+static const char *heater_constraint_str(pb_heater_constraint_t constraint)
+{
+    switch (constraint) {
+    case PB_HEATER_CONSTRAINT_NONE:             return "none";
+    case PB_HEATER_CONSTRAINT_IDLE:             return "idle";
+    case PB_HEATER_CONSTRAINT_LOCAL_FOLDBACK:   return "local_chamber_foldback";
+    case PB_HEATER_CONSTRAINT_ELEMENT_FOLDBACK: return "element_foldback";
+    case PB_HEATER_CONSTRAINT_SAFETY_INHIBITED: return "safety_inhibited";
+    default:                                    return "unknown";
+    }
+}
+
 static cJSON *state_json(const pb_policy_snapshot_t *s)
 {
     cJSON *o = cJSON_CreateObject();
@@ -213,6 +225,24 @@ static cJSON *state_json(const pb_policy_snapshot_t *s)
         cJSON_AddNullToObject(lease, "owner");
         cJSON_AddNumberToObject(lease, "expires_in_ms", 0);
     }
+
+    pb_heater_control_snapshot_t controller;
+    pb_heater_get_control_snapshot(&controller);
+    cJSON *loop = cJSON_AddObjectToObject(control, "loop");
+    cJSON_AddStringToObject(loop, "controller", "bang_bang");
+    cJSON_AddStringToObject(loop, "preferred_source",
+                            controller.preferred_external ? "bambu" : "local_ntc");
+    cJSON_AddStringToObject(loop, "effective_source",
+        !controller.process_variable_valid ? "unavailable" :
+        controller.effective_external ? "bambu" : "local_ntc");
+    if (controller.process_variable_valid)
+        add_num1(loop, "process_variable_c", controller.process_variable_c);
+    else
+        cJSON_AddNullToObject(loop, "process_variable_c");
+    add_num1(loop, "controller_request", controller.controller_request);
+    add_num1(loop, "allowed_output", controller.allowed_output);
+    cJSON_AddStringToObject(loop, "constraint",
+                            heater_constraint_str(controller.constraint));
 
     // Remembered mode parameters: what a mode is re-armed with when the caller
     // supplies no values of its own (front-panel buttons), and what the UI
