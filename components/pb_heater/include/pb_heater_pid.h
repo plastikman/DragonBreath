@@ -10,8 +10,8 @@
 // DragonBreath-owned chamber-controller policy. dc_pid supplies only the generic
 // PID math; sensor selection, safety inhibition, approach limiting, and the SSR
 // time-proportioning actuator remain product responsibilities.
-#define PB_HEATER_PID_KP         0.0250f
-#define PB_HEATER_PID_KI         0.0003f
+#define PB_HEATER_PID_KP         0.100f
+#define PB_HEATER_PID_KI         0.001f
 #define PB_HEATER_PID_KD         0.0400f
 #define PB_HEATER_PID_D_ALPHA    0.20f
 #define PB_HEATER_PID_DT_S       0.50f
