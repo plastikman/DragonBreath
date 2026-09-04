@@ -187,6 +187,10 @@ static void seed_dev_config(void)
 #ifdef DB_WIFI_SSID
     nvs_set_str(h, "ssid", DB_WIFI_SSID);
     nvs_set_str(h, "password", DB_WIFI_PASS);
+    // Match a normal provisioning: FALLBACK = STA-only while connected (no concurrent
+    // AP). Without this the mode defaults to AP_ALWAYS, so a weak/flapping STA leaves
+    // the softAP up and the SPA bounces to /setup whenever network_mode reads "ap".
+    nvs_set_u8(h, "ap_mode", DC_WIFI_AP_FALLBACK);
 #endif
 #ifdef DB_MOONRAKER_HOST
     nvs_set_str(h, "mk_host", DB_MOONRAKER_HOST);
