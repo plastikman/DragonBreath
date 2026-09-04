@@ -339,8 +339,8 @@ static void control_task(void *arg)
             bool net = s_net_up;
             pb_policy_snapshot_t snap;
             pb_policy_get_snapshot(&snap);
-            uint32_t zc = 0, zciv = 0;
-            pb_fan_zc_diag(&zc, &zciv);
+            uint32_t zc = 0, zciv = 0, zcrej = 0;
+            pb_fan_zc_diag(&zc, &zciv, &zcrej);
             // Build the status line WITHOUT the ZC counters (which change every
             // sample). Collapse consecutive identical states into a single
             // "repeated Nx" instead of spamming a line every 2 s — this keeps the
@@ -399,14 +399,16 @@ static void control_task(void *arg)
             if (strcmp(key, s_dbg_last) == 0) {
                 s_dbg_rep++;
                 if (s_dbg_rep % 30 == 0)   // ~60 s liveness flush during a long run
-                    ESP_LOGI(TAG, "%s | repeated %lux | ZC n=%lu dt=%luus",
+                    ESP_LOGI(TAG, "%s | repeated %lux | ZC n=%lu dt=%luus rejected=%lu",
                              line, (unsigned long)s_dbg_rep,
-                             (unsigned long)zc, (unsigned long)zciv);
+                             (unsigned long)zc, (unsigned long)zciv,
+                             (unsigned long)zcrej);
             } else {
                 if (s_dbg_rep > 0)
                     ESP_LOGI(TAG, "(previous line repeated %lux)", (unsigned long)s_dbg_rep);
-                ESP_LOGI(TAG, "%s | ZC n=%lu dt=%luus",
-                         line, (unsigned long)zc, (unsigned long)zciv);
+                ESP_LOGI(TAG, "%s | ZC n=%lu dt=%luus rejected=%lu",
+                         line, (unsigned long)zc, (unsigned long)zciv,
+                         (unsigned long)zcrej);
                 strncpy(s_dbg_last, key, sizeof s_dbg_last - 1);
                 s_dbg_last[sizeof s_dbg_last - 1] = '\0';
                 s_dbg_rep = 0;

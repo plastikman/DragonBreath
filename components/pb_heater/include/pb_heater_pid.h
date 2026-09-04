@@ -10,8 +10,8 @@
 // DragonBreath-owned chamber-controller policy. dc_pid supplies only the generic
 // PID math; sensor selection, safety inhibition, approach limiting, and the SSR
 // time-proportioning actuator remain product responsibilities.
-#define PB_HEATER_PID_KP         0.100f
-#define PB_HEATER_PID_KI         0.001f
+#define PB_HEATER_PID_KP         0.1000f
+#define PB_HEATER_PID_KI         0.0010f
 #define PB_HEATER_PID_KD         0.0400f
 #define PB_HEATER_PID_D_ALPHA    0.20f
 #define PB_HEATER_PID_DT_S       0.50f
@@ -65,8 +65,8 @@ static inline bool pb_heater_pid_set_source(pb_heater_pid_state_t *state,
 static inline float pb_heater_pid_approach_max_duty(float error_c)
 {
     if (error_c <= 0.0f) return 0.0f;
-    if (error_c < 5.0f)  return 0.40f;
-    if (error_c < 10.0f) return 0.70f;
+    if (error_c < 2.0f) return 0.40f;
+    if (error_c < 5.0f) return 0.70f;
     return 1.0f;
 }
 

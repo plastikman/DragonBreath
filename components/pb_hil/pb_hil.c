@@ -108,7 +108,8 @@ static cJSON *state_json(void)
 
     uint32_t zc_count = 0;
     uint32_t zc_interval_us = 0;
-    pb_fan_zc_diag(&zc_count, &zc_interval_us);
+    uint32_t zc_rejected_count = 0;
+    pb_fan_zc_diag(&zc_count, &zc_interval_us, &zc_rejected_count);
     cJSON *io = cJSON_AddObjectToObject(state, "io");
 #ifdef CONFIG_PB_HIL_DEVBOARD
     cJSON_AddStringToObject(io, "target", "devboard");
@@ -119,6 +120,7 @@ static cJSON *state_json(void)
 #endif
     cJSON_AddNumberToObject(io, "zero_cross_count", zc_count);
     cJSON_AddNumberToObject(io, "zero_cross_interval_us", zc_interval_us);
+    cJSON_AddNumberToObject(io, "zero_cross_rejected_count", zc_rejected_count);
     cJSON *leds = cJSON_AddObjectToObject(io, "leds");
     cJSON_AddStringToObject(leds, "power", led_pattern_str(pb_leds_get(PB_LED_POWER)));
     cJSON_AddStringToObject(leds, "auto", led_pattern_str(pb_leds_get(PB_LED_AUTO)));

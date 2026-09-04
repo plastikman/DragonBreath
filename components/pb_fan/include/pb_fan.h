@@ -19,10 +19,11 @@ esp_err_t pb_fan_init(void);
 void pb_fan_set_level(uint8_t percent);
 uint8_t pb_fan_get_level(void);
 
-// Diagnostics: total zero-cross interrupts since boot, and microseconds between
-// the last two edges (mains cycle period). interval 0 = no zero-cross seen yet
-// (ZCD not working / no mains) — lets us verify the detector without firing.
-void pb_fan_zc_diag(uint32_t *count_out, uint32_t *interval_us_out);
+// Diagnostics: accepted edges since boot, interval between the last two accepted
+// edges, and rejected implausibly-close edges. interval 0 = fewer than two
+// accepted edges (ZCD not working / no mains).
+void pb_fan_zc_diag(uint32_t *count_out, uint32_t *interval_us_out,
+                    uint32_t *rejected_count_out);
 
 #ifdef CONFIG_PB_DEVBOARD_SAFE
 // Inject one or more zero-cross events into the dev-board backend.

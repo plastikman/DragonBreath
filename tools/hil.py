@@ -43,6 +43,29 @@ def check_expectations(response: dict[str, Any], expected: dict[str, Any]) -> No
             if len(wanted) != 1:
                 raise HilError(f"{path}: assertion must contain exactly one operator")
             operator, operand = next(iter(wanted.items()))
+            if operator == "between":
+                if not isinstance(operand, list) or len(operand) != 2:
+                    raise HilError(f"{path}: between requires [minimum, maximum]")
+                passed = operand[0] <= actual <= operand[1]
+                if not passed:
+                    raise HilError(
+                        f"{path}: expected value in [{operand[0]!r}, {operand[1]!r}], "
+                        f"got {actual!r}"
+                    )
+                continue
+            if operator == "delta_between":
+                if not isinstance(operand, list) or len(operand) != 3:
+                    raise HilError(
+                        f"{path}: delta_between requires [baseline, minimum, maximum]"
+                    )
+                delta = actual - operand[0]
+                passed = operand[1] <= delta <= operand[2]
+                if not passed:
+                    raise HilError(
+                        f"{path}: expected delta in [{operand[1]!r}, {operand[2]!r}], "
+                        f"got {delta!r} from {actual!r} - {operand[0]!r}"
+                    )
+                continue
             operations = {
                 "eq": lambda: actual == operand,
                 "ne": lambda: actual != operand,
@@ -535,7 +558,8 @@ def run_scenario(
                 response = transport.request(
                     command, timeout_s=float(step.get("timeout_s", 4.0))
                 )
-                check_expectations(response, step.get("expect", {"ok": True}))
+                expected = substitute(step.get("expect", {"ok": True}), variables)
+                check_expectations(response, expected)
                 for variable, path in step.get("save", {}).items():
                     variables[variable] = dotted_get(response, path)
                 report["response"] = response

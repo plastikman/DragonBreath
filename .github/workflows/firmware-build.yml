@@ -65,6 +65,9 @@ jobs:
       - name: Test heater safety-trip decision (over-temp / fail-closed / watchdog)
         run: sh tests/run_heater_safety_host_test.sh
 
+      - name: Test zero-cross duplicate-edge filter
+        run: sh tests/run_fan_zc_host_test.sh
+
       - name: Test chamber dc_pid integration and safety hold
         run: sh tests/run_heater_pid_host_test.sh
 

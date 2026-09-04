@@ -8,7 +8,11 @@
       "expect": {
         "ok": true,
         "state.mode": "off",
-        "state.heater_output": false
+        "state.heater_output": false,
+        "state.fan_percent": 0
+      },
+      "save": {
+        "zc_before": "state.io.zero_cross_count"
       }
     },
     {
@@ -17,7 +21,37 @@
       "expect": {
         "ok": true,
         "state.io.target": "panda",
-        "state.io.mains_gpio_compiled_out": false
+        "state.io.mains_gpio_compiled_out": false,
+        "state.heater_output": false,
+        "state.fan_percent": 0,
+        "state.io.zero_cross_rejected_count": {"gte": 0}
+      }
+    },
+    {
+      "name": "observe five seconds of non-heating zero-cross cadence",
+      "wait_s": 5.0
+    },
+    {
+      "name": "verify filtered 60 Hz half-cycle cadence",
+      "send": {"cmd": "state"},
+      "expect": {
+        "ok": true,
+        "state.mode": "off",
+        "state.heater_output": false,
+        "state.fan_percent": 0,
+        "state.io.zero_cross_count": {"delta_between": ["$zc_before", 500, 700]},
+        "state.io.zero_cross_interval_us": {"between": [6500, 10000]},
+        "state.io.zero_cross_rejected_count": {"gte": 0}
+      }
+    },
+    {
+      "name": "finish safe",
+      "send": {"cmd": "off"},
+      "expect": {
+        "ok": true,
+        "state.mode": "off",
+        "state.heater_output": false,
+        "state.fan_percent": 0
       }
     }
   ]

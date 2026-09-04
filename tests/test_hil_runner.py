@@ -41,6 +41,35 @@ class HilRunnerTest(unittest.TestCase):
         )
         self.assertEqual(value["lease_id"], "abc")
 
+    def test_saved_baseline_delta_expectation(self):
+        expected = hil.substitute(
+            {"state.count": {"delta_between": ["$before", 500, 700]}},
+            {"before": 1000},
+        )
+        hil.check_expectations({"state": {"count": 1600}}, expected)
+        with self.assertRaisesRegex(hil.HilError, "expected delta"):
+            hil.check_expectations({"state": {"count": 1800}}, expected)
+
+    def test_between_expectation(self):
+        hil.check_expectations(
+            {"state": {"interval_us": 8333}},
+            {"state.interval_us": {"between": [6500, 10000]}},
+        )
+        with self.assertRaisesRegex(hil.HilError, "expected value"):
+            hil.check_expectations(
+                {"state": {"interval_us": 990}},
+                {"state.interval_us": {"between": [6500, 10000]}},
+            )
+
+    def test_panda_smoke_checks_zero_cross_cadence(self):
+        scenario = hil.load_scenario(
+            hil.SCENARIO_DIR / "panda-smoke.json", "panda"
+        )
+        serialized = json.dumps(scenario)
+        self.assertIn("zero_cross_rejected_count", serialized)
+        self.assertIn("delta_between", serialized)
+        self.assertIn("zero_cross_interval_us", serialized)
+
     def test_heat_detection(self):
         self.assertTrue(
             hil.requests_heat(
