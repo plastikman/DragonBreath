@@ -37,6 +37,9 @@ static bool        s_persist_pending;  // guarded by s_mux — a latch persist n
 static int64_t     s_persist_retry_us; // guarded by s_mux — last persist-retry timestamp
 static bool        s_on;            // written only by the control task; atomic read
 static pb_heater_pid_state_t s_pid; // control-task only — shared dc_pid state + SSR window
+static float       s_commanded_duty; // guarded by s_mux; PID output after approach limit
+static float       s_approach_limit; // guarded by s_mux; product-owned active duty ceiling
+static pb_heater_constraint_t s_constraint; // guarded by s_mux
 static bool        s_fb_cut;        // control-task only — element-foldback hysteresis latch:
                                     // true while the SSR is force-cut for element over-temp
                                     // (holds until the element cools below the resume point)
@@ -96,6 +99,40 @@ static void ssr_set(bool on)        // control-task context only
     s_on = on;
 }
 
+static void telemetry_set(float commanded_duty, float approach_limit,
+                          pb_heater_constraint_t constraint)
+{
+    taskENTER_CRITICAL(&s_mux);
+    s_commanded_duty = commanded_duty;
+    s_approach_limit = approach_limit;
+    s_constraint = constraint;
+    taskEXIT_CRITICAL(&s_mux);
+}
+
+void pb_heater_get_telemetry(pb_heater_telemetry_t *out)
+{
+    if (!out) return;
+    taskENTER_CRITICAL(&s_mux);
+    out->commanded_duty = s_commanded_duty;
+    out->approach_limit = s_approach_limit;
+    out->constraint = s_constraint;
+    taskEXIT_CRITICAL(&s_mux);
+}
+
+const char *pb_heater_constraint_str(pb_heater_constraint_t constraint)
+{
+    switch (constraint) {
+    case PB_HEATER_CONSTRAINT_OFF:             return "off";
+    case PB_HEATER_CONSTRAINT_NONE:            return "none";
+    case PB_HEATER_CONSTRAINT_APPROACH_LIMIT:  return "approach_limit";
+    case PB_HEATER_CONSTRAINT_TARGET_REACHED:  return "target_reached";
+    case PB_HEATER_CONSTRAINT_LOCAL_FOLDBACK:  return "local_foldback";
+    case PB_HEATER_CONSTRAINT_ELEMENT_FOLDBACK:return "element_foldback";
+    case PB_HEATER_CONSTRAINT_PID_ERROR:       return "pid_error";
+    default:                                   return "unknown";
+    }
+}
+
 esp_err_t pb_heater_init(void)
 {
     if (!s_persist_lock) s_persist_lock = xSemaphoreCreateMutex();
@@ -119,6 +156,9 @@ esp_err_t pb_heater_init(void)
     s_fault_reason = NULL;
     s_fault_code = PB_FAULT_NONE;
     s_last_link_us = esp_timer_get_time();
+    s_commanded_duty = 0.0f;
+    s_approach_limit = 0.0f;
+    s_constraint = PB_HEATER_CONSTRAINT_OFF;
     // Conservative defaults ONLY — nvs isn't up yet; pb_heater_load_config()
     // applies persisted values later (called after nvs_init in app_main).
     s_max_target_c = PB_HEATER_MAX_TARGET_C_DEFAULT;
@@ -365,6 +405,9 @@ static void do_latch(pb_fault_reason_t code, const char *reason,
     if (inhibit) s_inhibited = true;
     s_fault_code = code;
     s_fault_reason = reason ? reason : pb_heater_fault_str(code);
+    s_commanded_duty = 0.0f;
+    s_approach_limit = 0.0f;
+    s_constraint = PB_HEATER_CONSTRAINT_OFF;
     taskEXIT_CRITICAL(&s_mux);
     if (persist && transition) {
         if (s_persist_lock) xSemaphoreTake(s_persist_lock, portMAX_DELAY);
@@ -579,6 +622,7 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
         pb_heater_pid_reset(&s_pid);
         s_fb_cut      = false;   // drop foldback latches so the next arm starts clean
         s_local_cut   = false;
+        telemetry_set(0.0f, 0.0f, PB_HEATER_CONSTRAINT_OFF);
         return;
     }
 
@@ -617,15 +661,35 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
     // authoritative regardless of PID demand.
     bool safety_inhibited = s_local_cut || s_fb_cut;
     float duty = 0.0f;
-    if (!pb_heater_pid_step(&s_pid, target, regulation_c,
-                            !safety_inhibited, &duty)) {
+    bool pid_ok = pb_heater_pid_step(&s_pid, target, regulation_c,
+                                     !safety_inhibited, &duty);
+    if (!pid_ok) {
         ESP_LOGE(TAG, "PID step rejected; forcing SSR off");
         duty = 0.0f;
     }
 
+    float approach_limit = pb_heater_pid_approach_max_duty(target - regulation_c);
+    pb_heater_constraint_t constraint = PB_HEATER_CONSTRAINT_NONE;
+    if (!pid_ok)
+        constraint = PB_HEATER_CONSTRAINT_PID_ERROR;
+    else if (s_fb_cut)
+        constraint = PB_HEATER_CONSTRAINT_ELEMENT_FOLDBACK;
+    else if (s_local_cut)
+        constraint = PB_HEATER_CONSTRAINT_LOCAL_FOLDBACK;
+    else if (regulation_c >= target)
+        constraint = PB_HEATER_CONSTRAINT_TARGET_REACHED;
+    else if (approach_limit < 1.0f && duty >= approach_limit - 0.0005f)
+        constraint = PB_HEATER_CONSTRAINT_APPROACH_LIMIT;
+
+    // This is the duty actually admitted to the SSR window after downstream
+    // thermal governors. Keep the underlying PID state private; diagnostics
+    // should report the command the actuator was allowed to receive.
+    float commanded_duty = safety_inhibited ? 0.0f : duty;
+    telemetry_set(commanded_duty, approach_limit, constraint);
+
     // Step 5 — time-proportion normalized duty through a slow 10 s window. This is
     // still plain on/off drive of a zero-cross SSR; there is no phase cutting.
-    bool drive = !safety_inhibited &&
-                 pb_heater_pid_window_on(&s_pid, duty, esp_timer_get_time());
+    bool drive = pb_heater_pid_window_on(
+        &s_pid, commanded_duty, esp_timer_get_time());
     if (drive != s_on) ssr_set(drive);
 }

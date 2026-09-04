@@ -7,6 +7,12 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+- Expose product-owned heater control telemetry in API v2 state snapshots:
+  commanded SSR-window duty, the active PID approach limit, and the dominant
+  controller or thermal constraint. This is read-only observability and does
+  not change heater control or safety behavior.
+
 ## [1.1.15] - 2026-09-01
 
 ### Fixed

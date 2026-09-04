@@ -102,6 +102,13 @@ static void add_num1(cJSON *o, const char *key, float v)
     cJSON_AddRawToObject(o, key, b);
 }
 
+static void add_num3(cJSON *o, const char *key, float v)
+{
+    char b[20];
+    snprintf(b, sizeof b, "%.3f", (double)v);
+    cJSON_AddRawToObject(o, key, b);
+}
+
 static const char *fan_reason(const pb_policy_snapshot_t *s)
 {
     if (s->fault_latched || s->inhibited) return "fault";
@@ -136,8 +143,15 @@ static cJSON *state_json(const pb_policy_snapshot_t *s)
         config, "comms_ms", pb_heater_get_comms_timeout_ms());
 
     cJSON *heater = cJSON_AddObjectToObject(o, "heater");
+    pb_heater_telemetry_t heater_telemetry;
+    pb_heater_get_telemetry(&heater_telemetry);
     cJSON_AddBoolToObject(heater, "demand", s->heater_demand);
     cJSON_AddBoolToObject(heater, "output", s->heater_output);
+    add_num3(heater, "commanded_duty", heater_telemetry.commanded_duty);
+    add_num3(heater, "approach_limit", heater_telemetry.approach_limit);
+    cJSON_AddStringToObject(
+        heater, "constraint",
+        pb_heater_constraint_str(heater_telemetry.constraint));
 
     cJSON *fan = cJSON_AddObjectToObject(o, "fan");
     cJSON_AddNumberToObject(fan, "requested_percent", s->requested_fan_percent);

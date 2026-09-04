@@ -32,6 +32,28 @@ typedef enum {
                                   // corrupt and mapped to a generic latched fault
 } pb_fault_reason_t;
 
+// Read-only control telemetry for diagnostics and hardware validation. These
+// values describe DragonBreath's product-owned control path; dc_pid remains a
+// board-neutral math primitive with no knowledge of approach limits, safety
+// governors, or the physical SSR.
+typedef enum {
+    PB_HEATER_CONSTRAINT_OFF = 0,
+    PB_HEATER_CONSTRAINT_NONE,
+    PB_HEATER_CONSTRAINT_APPROACH_LIMIT,
+    PB_HEATER_CONSTRAINT_TARGET_REACHED,
+    PB_HEATER_CONSTRAINT_LOCAL_FOLDBACK,
+    PB_HEATER_CONSTRAINT_ELEMENT_FOLDBACK,
+    PB_HEATER_CONSTRAINT_PID_ERROR,
+} pb_heater_constraint_t;
+
+typedef struct {
+    // PID output after DragonBreath's active approach limit (normalized 0..1).
+    float commanded_duty;
+    // Product-owned maximum duty for the current temperature error (0..1).
+    float approach_limit;
+    pb_heater_constraint_t constraint;
+} pb_heater_telemetry_t;
+
 // Pure fail-safe decision for the boot-time fault restore (pb_heater_load_fault),
 // inline so it can be host-tested without an NVS backend. Given the outcome of
 // reading the persisted latch/code, decides whether to come up latched and with
@@ -213,6 +235,11 @@ esp_err_t pb_heater_init(void);
 //                           HTTP 409. Heat is never queued behind a fault latch.
 esp_err_t pb_heater_set_target_c(float target_c);
 float pb_heater_get_target_c(void);
+
+// Copy one lock-consistent diagnostic snapshot. This is observational only and
+// has no effect on PID state, watchdogs, leases, or heater output.
+void pb_heater_get_telemetry(pb_heater_telemetry_t *out);
+const char *pb_heater_constraint_str(pb_heater_constraint_t constraint);
 
 // Optional external chamber measurement used ONLY for set-point regulation.
 // Pass NAN to fall back to the local chamber NTC. The local chamber NTC and PTC

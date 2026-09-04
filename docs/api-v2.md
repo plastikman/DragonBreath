@@ -59,7 +59,13 @@ The complete snapshot, not locally remembered intent, is the source of truth:
     "max_abs": 70.0,
     "comms_ms": 300000
   },
-  "heater": {"demand": true, "output": true},
+  "heater": {
+    "demand": true,
+    "output": true,
+    "commanded_duty": 0.700,
+    "approach_limit": 0.700,
+    "constraint": "approach_limit"
+  },
   "fan": {
     "requested_percent": 100,
     "effective_percent": 100,
@@ -106,6 +112,14 @@ The complete snapshot, not locally remembered intent, is the source of truth:
   }
 }
 ```
+
+`heater.commanded_duty` is the normalized duty admitted to the 10-second SSR
+window after the PID approach policy and non-latching thermal governors. It is
+not phase-angle modulation; `heater.output` remains the instantaneous on/off SSR
+command. `heater.approach_limit` reports the product-owned duty ceiling selected
+for the current control error. `heater.constraint` is one of `off`, `none`,
+`approach_limit`, `target_reached`, `local_foldback`, `element_foldback`,
+`pid_error`, or `unknown`.
 
 Temperatures are JSON `null` when their sensor status is not `ok`. Public
 state and SSE snapshots intentionally omit the raw lease ID; only the

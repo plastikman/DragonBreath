@@ -99,6 +99,15 @@ for field in printer_chamber_temperature_c printer_chamber_age_ms; do
     }
 done
 
+# Product-owned heater diagnostics must make the PID command, approach policy,
+# and dominant constraint observable without moving actuator policy into core.
+for field in commanded_duty approach_limit constraint; do
+    grep -q "\"$field\"" "$httpd" || {
+        echo "state document is missing heater.$field" >&2
+        exit 1
+    }
+done
+
 # Ownership boundary: core owns HTTP/provisioning/recovery; the product adapter
 # supplies API registration, authorization, heater safety and image identity.
 grep -q 'dc_portal_start(&cfg)' "$adapter"
