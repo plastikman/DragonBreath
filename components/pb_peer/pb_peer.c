@@ -8,6 +8,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_mac.h"
+#include "esp_app_desc.h"
+#include "esp_netif.h"
 #include "esp_log.h"
 
 #include <math.h>
@@ -16,7 +18,8 @@
 
 static const char *TAG = "pb_peer";
 
-#define PUBLISH_MS 2000   // heartbeat; the vent's fresh-window is many seconds
+#define PUBLISH_MS  2000   // heater heartbeat; the vent's fresh-window is many seconds
+#define ANNOUNCE_MS 6000   // descriptor heartbeat (every 3rd status tick)
 
 static uint8_t mode_code(const char *m)
 {
@@ -26,9 +29,34 @@ static uint8_t mode_code(const char *m)
     return 0;   // off / anything else
 }
 
+static void fill_ip(uint8_t ip[4])
+{
+    memset(ip, 0, 4);
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_ip_info_t info = {0};
+    if (sta && esp_netif_get_ip_info(sta, &info) == ESP_OK) {
+        uint32_t a = info.ip.addr;
+        ip[0] = a & 0xff; ip[1] = (a >> 8) & 0xff; ip[2] = (a >> 16) & 0xff; ip[3] = (a >> 24) & 0xff;
+    }
+}
+
+// Broadcast the Breath's stable descriptor so a console labels it "DragonBreath"
+// (kind/name/firmware) instead of inferring a nameless device from heater frames.
+static void publish_announce(void)
+{
+    dc_peer_announce_t a = {0};
+    a.kind = DC_PEER_KIND_BREATH;
+    a.caps = DC_PEER_CAP_BIT(DC_PEER_CAP_ANNOUNCE) | DC_PEER_CAP_BIT(DC_PEER_CAP_HEATER);
+    fill_ip(a.ip);
+    strlcpy(a.name, "DragonBreath", sizeof(a.name));
+    strlcpy(a.fw, esp_app_get_description()->version, sizeof(a.fw));
+    dc_peer_publish(DC_PEER_CAP_ANNOUNCE, &a, sizeof(a));
+}
+
 static void peer_task(void *arg)
 {
     (void)arg;
+    int since_announce = ANNOUNCE_MS;   // announce on the first tick
     for (;;) {
         pb_policy_snapshot_t s;
         pb_policy_get_snapshot(&s);
@@ -45,6 +73,9 @@ static void peer_task(void *arg)
         h.state_revision = s.state_revision;
 
         dc_peer_publish(DC_PEER_CAP_HEATER, &h, sizeof(h));
+
+        since_announce += PUBLISH_MS;
+        if (since_announce >= ANNOUNCE_MS) { publish_announce(); since_announce = 0; }
         vTaskDelay(pdMS_TO_TICKS(PUBLISH_MS));
     }
 }
