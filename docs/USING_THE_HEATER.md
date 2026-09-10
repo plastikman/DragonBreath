@@ -36,11 +36,11 @@ Use exactly one of these control workflows:
 Do not mix them. A positive `M141`, `M191`, or `SET_HEATER_TEMPERATURE`
 request starts a manual `POWER_ON` session and replaces AUTO.
 
-The `dragonbreath-klipper` Python file may remain installed for AUTO, but its
-active `[dragonbreath]` configuration is itself a manual controller. It sends a
-safety OFF when it connects, disconnects, or Klippy shuts down, so a reconnect
-can disarm AUTO. DragonBreath's direct Moonraker connection supplies AUTO with
-printer state; the Klippy helper is not required for that workflow.
+The UI reflects that ownership choice. When an active `[dragonbreath]` Klippy
+configuration is detected, slicer/Klipper owns chamber heat and AUTO is hidden.
+This is expected—not a missing feature. Disable the active helper configuration
+and restart Klipper to use AUTO; DragonBreath's direct Moonraker connection
+supplies the printer state for that workflow.
 
 ## Decide the order of operations
 
@@ -144,7 +144,8 @@ slicer-issued heater commands:
    printer's Moonraker address.
 2. Configure the desired **Filament zones** in DragonBreath Settings.
 3. Disable the active `dragonbreath-klipper`/printer-distribution chamber-heater
-   configuration. Leave DragonBreath's own Moonraker source enabled.
+   configuration and restart Klipper. Leave DragonBreath's own Moonraker source
+   enabled; the AUTO control becomes available when no active helper is detected.
 4. In each Orca filament preset, leave the chamber temperature set if desired but
    clear **Activate temperature control**. Leave **Support controlling chamber
    temperature** enabled. Verify that sliced G-code contains no `M141` or `M191`.
@@ -218,8 +219,9 @@ the same expected non-zero numeric target. If Orca rejects
 
 - **Chamber heats first; bed stays cold:** Orca probably injected `M191` before
   Machine start G-code. Inspect the generated file, not only the preset UI.
-- **AUTO changes to On/Manual at print start:** the G-code sent a positive `M141`,
-  `M191`, or `SET_HEATER_TEMPERATURE`, or the active helper reconnected.
+- **AUTO is not shown:** an active `[dragonbreath]` Klippy configuration was
+  detected, so slicer/Klipper owns chamber heat. Disable it and restart Klipper if
+  AUTO is the desired workflow.
 - **AUTO is armed but not heating:** check that a print is active, Moonraker is
   connected, its active material is detected, and that material has a non-zero
   DragonBreath filament zone.

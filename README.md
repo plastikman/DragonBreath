@@ -227,8 +227,8 @@ others are disabled — there is exactly one controller.
   [dragonbreath-klipper](https://github.com/plastikman/dragonbreath-klipper) helper it
   shows up as `[heater_generic dragonbreath]` (M141/M191) plus a fan-only filtration
   toggle, and AUTO mode follows the loaded filament's zone profile. Validated end-to-end on hardware.
-  The active helper is a manual controller and should be disabled for AUTO;
-  `M141`/`M191` must not be emitted in that workflow. See
+  When an active `[dragonbreath]` helper config is detected, slicer/Klipper owns
+  chamber heat and AUTO is hidden. Disable the helper config to use AUTO. See
   [the heater workflow guide](docs/USING_THE_HEATER.md).
 - **Klipper MQTT** — an alternative for managed Klipper installs that permit
   `moonraker.conf`, `printer.cfg`, and broker configuration but cannot install a

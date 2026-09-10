@@ -42,11 +42,9 @@ and AUTO can drive the target together. In Klipper source mode, choose either:
 - manual slicer/Klipper control through `M141`, `M191`, or
   `SET_HEATER_TEMPERATURE`, with AUTO off.
 
-The helper's Python file may stay installed, but its active `[dragonbreath]`
-configuration is a manual controller and sends a safety OFF when it connects or
-disconnects. Disable that configuration for a reliable AUTO workflow. Issuing one
-of its heater commands with a positive target starts a manual POWER_ON session and
-replaces AUTO. See
+An active `[dragonbreath]` Klippy configuration declares slicer/Klipper ownership,
+so the UI hides AUTO. Disable that configuration and restart Klipper to make AUTO
+available. See
 [`USING_THE_HEATER.md`](USING_THE_HEATER.md) for setup recipes and OrcaSlicer's
 important command-ordering behavior.
 

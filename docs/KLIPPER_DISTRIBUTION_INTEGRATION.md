@@ -51,13 +51,11 @@ required for the native Klippy-extra path.
 
 ### AUTO and manual G-code are alternative workflows
 
-The helper's Python file can be installed while DragonBreath AUTO is used, but its
-active `[dragonbreath]` configuration is a manual controller. As required below,
-it sends a safety OFF on connect, orderly disconnect, and Klippy shutdown; a
-reconnect can therefore disarm AUTO. Slicer-issued `M141`, `M191`, and
-`SET_HEATER_TEMPERATURE` commands with a positive target also start a manual
-POWER_ON session and replace AUTO. A distribution should provide a way to disable the active helper config,
-tell users to choose one workflow, and link to
+An active `[dragonbreath]` configuration declares slicer/Klipper ownership of
+chamber heat. The UI therefore hides AUTO when it detects that configuration,
+rather than presenting two controls that cannot safely own the same target. A
+distribution should provide a way to disable the active helper config and restart
+Klipper for users who prefer AUTO. Link users to
 [`USING_THE_HEATER.md`](USING_THE_HEATER.md).
 
 OrcaSlicer deserves an explicit warning. With chamber-temperature control enabled,

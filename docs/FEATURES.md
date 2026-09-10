@@ -36,10 +36,11 @@ loaded filament's zone profile; validated on a real printer), or **PrusaLink**
 identical and source-independent.
 
 For Klipper users, AUTO and slicer-issued `M141`/`M191` are alternative workflows.
-Positive targets from those commands request a manual POWER_ON session and replace AUTO. OrcaSlicer also
-emits a blocking `M191` before Machine start G-code when chamber control is enabled,
+When an active `[dragonbreath]` Klippy configuration is detected, slicer/Klipper
+owns chamber heat and the UI hides AUTO. OrcaSlicer also emits a blocking `M191`
+before Machine start G-code when its filament-level automatic control is enabled,
 before the normal bed command. See [`USING_THE_HEATER.md`](USING_THE_HEATER.md) for
-the two supported workflows and a bed-plus-chamber preheat macro.
+workflow and ordering choices.
 
 AUTO and filament drying are implemented and validated end-to-end on hardware;
 see [`OEM_PARITY.md`](OEM_PARITY.md).
