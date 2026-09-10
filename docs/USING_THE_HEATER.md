@@ -60,6 +60,37 @@ or raising the bed, keep electronics-cooling fans running, park the toolhead awa
 from a hot area, or limit its chamber target. Put those printer-specific decisions
 in its start macro or Machine start G-code.
 
+## Auxiliary fan, bed, and toolhead position
+
+Heating commands are only part of chamber preheating. The printer's physical
+state can substantially change warm-up time and temperature uniformity:
+
+- **Auxiliary circulation fan:** a printer-owned aux fan can mix the chamber air
+  and move bed heat through the enclosure. Decide whether it should run during
+  preheat, at what speed, and when it should stop. This is separate from the
+  DragonBreath blower, which DragonBreath controls automatically whenever its
+  heater is operating. Do not assume an Orca fan number such as `P2` maps to the
+  same hardware on every printer.
+- **Bed position:** a bed parked in the middle of the enclosure may divide or
+  obstruct circulation. Moving it higher or lower can improve airflow on one
+  printer and make it worse on another. It may also change how much the bed helps
+  heat the chamber. Check cables, bellows, purge hardware, and the full collision
+  envelope before choosing a preheat position.
+- **Toolhead position:** park the toolhead where it will not block circulation,
+  overheat a probe or carriage component, or drip softened filament onto the build
+  area. Keep any fans required to protect toolhead electronics running.
+- **Homing and movement:** do not copy generic `G28` or `G1` sequences from another
+  printer. Machines home in different directions and have different safe-move,
+  probe, tool-changer, and bed-motion prerequisites. Reuse that printer's existing
+  homing and parking macros.
+- **Thermal expansion:** homing, Z-offset measurement, and bed meshing before or
+  after the heat soak can produce different results. Decide which operations need
+  a thermally stable bed, frame, and chamber for the specific machine.
+
+There is no universal bed coordinate, toolhead park position, auxiliary-fan
+command, or homing order that is safe and effective for every printer. Treat these
+as printer-profile decisions, test them cautiously, and supervise initial runs.
+
 ## The OrcaSlicer trap
 
 When both **Support controlling chamber temperature** (printer preset) and
@@ -91,6 +122,9 @@ policy is wanted, place the commands manually:
 Keeping the chamber temperature set while **Activate temperature control** is
 unchecked leaves Orca's `overall_chamber_temperature` and `chamber_temperature`
 placeholders available without its automatically injected `M191`/`M141` commands.
+It also means Orca will not automatically manage an auxiliary fan around its
+injected chamber wait. If circulation is wanted, place the correct printer-specific
+aux-fan commands in the custom start sequence as well.
 
 ## Slicer / Klipper control
 
@@ -208,6 +242,13 @@ the first line of Machine end G-code unless it is already present:
 ```gcode
 M141 S0 ; chamber off
 ```
+
+The supplied U1 start G-code also contains `M106 P2 S0` and later `M107 P2`. If
+this profile maps `P2` to the printer's auxiliary circulation fan, the `S0` leaves
+that fan off during warm-up. Users who want forced circulation can change it to
+their desired 0–255 speed and keep or relocate the later fan-off command. Verify
+the printer's fan mapping first; this fan is separate from DragonBreath's
+automatically controlled blower.
 
 After slicing, verify that there is no `M191` before
 `SET_PRINT_AUTO_BED_LEVELING`, that the early `M140`/`M141` and later

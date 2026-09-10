@@ -12,8 +12,10 @@ below into the GitHub Release notes.
   printer/slicer workflow integration rather than "just working." It makes AUTO
   and slicer/Klipper control explicitly alternative workflows, documents several
   valid heating orders, warns about OrcaSlicer's leading blocking `M191`, and
-  explains why detecting an active `[dragonbreath]` controller hides AUTO. The
-  Snapmaker U1/PAXX profile remains only a worked example.
+  covers printer-specific auxiliary-fan, bed-position, toolhead-position, homing,
+  and thermal-expansion considerations. It also explains why detecting an active
+  `[dragonbreath]` controller hides AUTO; the Snapmaker U1/PAXX profile remains
+  only a worked example.
 - Updated stale feature, control-source, API, and OEM-parity descriptions for the
   current filament-follow AUTO behavior and the PrusaLink bed-follow exception.
 
