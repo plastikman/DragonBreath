@@ -85,9 +85,124 @@ must wait for a heat soak. Leave DragonBreath AUTO off. `M141` starts chamber
 heating without waiting; `M191` starts it and blocks until the target is reached.
 
 Do not use Orca's automatically injected `M191` if you want the bed and chamber
-to warm together. Disable that option and pass the chamber target into your
-existing `PRINT_START` macro instead. Parameter names vary between printer
-profiles, but the macro's heating phase should have this shape:
+to warm together. It runs before Machine start G-code, so adding an earlier bed
+command *inside* Machine start G-code cannot get ahead of it. Disable Orca's
+automatic chamber commands and verify the generated file no longer begins with
+`M191`.
+
+### Snapmaker U1 / PAXX Orca profile
+
+Do these steps exactly. The underscores shown below are normal G-code underscores;
+do not type backslashes before them.
+
+#### 1. Stop Orca from inserting its own early `M191`
+
+1. Open the **Filament settings** for each heated-chamber material.
+2. Under **Temperature → Print chamber temperature**, enable **Activate
+   temperature control**, set the desired chamber temperature, and save the
+   filament preset.
+3. Open **Printer settings**.
+4. Switch Orca to **Advanced** mode if the next option is hidden.
+5. Open **Basic information → Accessory**.
+6. Clear **Support controlling chamber temperature**.
+7. Save the printer preset.
+
+Keep the desired chamber temperature in the filament preset. The Machine start
+G-code below reads it through Orca's `overall_chamber_temperature` placeholder.
+Turning off printer-level support prevents Orca from automatically placing a
+blocking `M191` ahead of Machine start G-code.
+
+#### 2. Start the chamber beside the bed
+
+Open **Printer settings → Machine G-code → Machine start G-code**.
+
+Find these three consecutive lines near the top:
+
+```gcode
+TIMELAPSE_START
+M140 S{bed_temperature_initial_layer_single}
+M104 T{initial_extruder} S140
+```
+
+Insert the new `M141` line immediately **after `M140` and before `M104`**, so the
+block reads exactly:
+
+```gcode
+TIMELAPSE_START
+M140 S{bed_temperature_initial_layer_single}
+M141 S{overall_chamber_temperature} ; start chamber, do not wait
+M104 T{initial_extruder} S140
+```
+
+Do not delete or move the `M140` line. `M140` starts the bed and `M141` starts
+DragonBreath; neither command waits, so they now heat together during the U1's
+existing calibration and nozzle-cleaning sequence.
+
+#### 3. Wait for the chamber beside the existing bed wait
+
+Farther down in the same Machine start G-code, find these four consecutive lines:
+
+```gcode
+M106 S255
+M109 S{nozzle_temperature[initial_extruder] - 90}
+M190 S{bed_temperature_initial_layer_single}
+M107 P2
+```
+
+Insert the new `M191` line immediately **after `M190` and before `M107 P2`**, so
+the block reads exactly:
+
+```gcode
+M106 S255
+M109 S{nozzle_temperature[initial_extruder] - 90}
+M190 S{bed_temperature_initial_layer_single}
+M191 S{overall_chamber_temperature} ; wait for chamber; bed remains hot
+M107 P2
+```
+
+`overall_chamber_temperature` uses the highest configured chamber target when a
+print contains multiple filaments. `{chamber_temperature[0]}` is the Orca
+alternative for the first filament only.
+
+Do not remove or relocate the existing `WAIT_CHAMBER_TEMP TIMEOUT=180` below this
+block. This edit preserves the U1's homing, feed/flow calibration, nozzle cleaning,
+bed-plate detection, chamber wait, and mesh sequence. The bed and chamber begin
+heating together during the existing preparation work. At the later waits, the
+bed reaches target first and remains hot while `M191` lets the chamber finish and
+soak.
+
+#### 4. Turn DragonBreath off when the print ends
+
+Open **Printer settings → Machine G-code → Machine end G-code** and add this as
+the first line unless the end G-code already contains it:
+
+```gcode
+M141 S0 ; chamber off
+```
+
+#### 5. Verify one sliced file
+
+Slice a small test object, export the G-code, and inspect it as text. Confirm all
+four of these before printing:
+
+1. There is no `M191` before `SET_PRINT_AUTO_BED_LEVELING` or before Machine start
+   G-code.
+2. Near the top, `M140 ...` is immediately followed by `M141 S<number>`, where
+   the number is the expected non-zero chamber target.
+3. Later, `M190 ...` is immediately followed by `M191 S<number>` with the same
+   chamber target.
+4. The end G-code contains `M141 S0`.
+
+If Orca reports `overall_chamber_temperature` as an unknown placeholder, use
+`{chamber_temperature[0]}` in both added lines instead. Do not use different
+placeholders for the start and wait commands. If either command renders as `S0`,
+return to the filament preset and set/activate its chamber temperature.
+
+### Other Klipper profiles
+
+For a profile built around parameterized macros, pass the bed and chamber targets
+to a preheat macro. Parameter names vary between profiles, but its heating phase
+should have this shape:
 
 ```ini
 [gcode_macro CHAMBER_PREHEAT]
@@ -106,7 +221,7 @@ gcode:
 ```
 
 Call it from the printer's start macro with the bed and chamber temperatures
-supplied by the slicer. If the existing `PRINT_START` already starts or waits for
+supplied by the slicer. If the existing start G-code already starts or waits for
 the bed, merge these four commands into that heating phase instead of heating the
 bed twice.
 

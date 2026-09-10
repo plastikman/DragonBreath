@@ -11,7 +11,8 @@ below into the GitHub Release notes.
 - Added a task-focused chamber-heater guide that makes AUTO and slicer/Klipper
   control explicitly alternative workflows, documents that manual `M141`/`M191`
   commands replace AUTO, warns that OrcaSlicer injects blocking `M191` before
-  Machine start G-code, and provides a simultaneous bed/chamber preheat macro.
+  Machine start G-code, and provides both an exact Snapmaker U1/PAXX start-G-code
+  edit and a generic simultaneous bed/chamber preheat macro.
 - Updated stale feature, control-source, API, and OEM-parity descriptions for the
   current filament-follow AUTO behavior and the PrusaLink bed-follow exception.
 
