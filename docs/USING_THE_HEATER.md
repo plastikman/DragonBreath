@@ -1,121 +1,171 @@
 # Using the chamber heater
 
-DragonBreath does not decide how a print should warm up. It carries out the
-workflow selected by the user, slicer, or printer configuration. In particular,
-it does **not** automatically turn on the bed when the chamber heater starts.
+Adding a chamber heater to a printer that was not designed or configured for one
+requires changes to the print workflow. DragonBreath provides heater control and
+safety; it cannot know how a particular printer should home, position its bed,
+run its fans, heat-soak, or sequence its bed, nozzle, and chamber.
 
-For Klipper, choose **one** of these workflows:
+It therefore does **not** automatically turn on the bed when chamber heating
+starts, and installing a Klipper integration does not rewrite slicer profiles or
+print-start macros. The integration supplies tools, not a universal startup policy.
 
-| Workflow | Who chooses the chamber target? | Does the print wait for it? |
+## What the Klipper integration provides
+
+- `M141 S<temperature>` starts chamber heating without waiting.
+- `M191 S<temperature>` starts chamber heating and waits for the chamber target.
+- `M141 S0` turns chamber heating off.
+- `SET_HEATER_TEMPERATURE HEATER=dragonbreath TARGET=<temperature>` is the
+  corresponding native Klipper command.
+- The `heater_generic` object exposes chamber state to Klipper front ends and
+  macros.
+
+DragonBreath remains responsible for its independent sensor checks, target clamp,
+element foldback, over-temperature shutdown, cooldown airflow, and communications
+watchdog. The printer configuration remains responsible for when to issue those
+commands.
+
+## First choose who controls the target
+
+Use exactly one of these control workflows:
+
+| Workflow | Target source | Print-start behavior |
 |---|---|---|
-| [DragonBreath AUTO](#workflow-1-dragonbreath-auto) | DragonBreath's filament-zone settings | No |
-| [Slicer / Klipper control](#workflow-2-slicer--klipper-control) | Orca or a Klipper start macro | Yes, when the macro uses `M191` |
+| [DragonBreath AUTO](#dragonbreath-auto) | DragonBreath filament-zone settings | Follows an active print; does not block print start |
+| [Slicer / Klipper control](#slicer--klipper-control) | Slicer settings and printer G-code | Completely defined by the user's start/end G-code |
 
-Do not combine them. `M141`, `M191`, and
-`SET_HEATER_TEMPERATURE HEATER=dragonbreath ...` are manual Klipper commands.
-Sending a positive target replaces AUTO with a manual `POWER_ON` session; sending
-zero turns the heater off. Two independent pieces of software cannot own the
-target at the same time.
+Do not mix them. A positive `M141`, `M191`, or `SET_HEATER_TEMPERATURE`
+request starts a manual `POWER_ON` session and replaces AUTO.
 
-The `dragonbreath-klipper` Python file may remain installed in either workflow,
-but its active `[dragonbreath]` configuration is itself a manual controller. It
-sends a safety OFF when it connects, disconnects, or Klippy shuts down, so a
-reconnect can disarm AUTO even if the slicer sends no heater command. For a
-reliable AUTO workflow, disable the active helper configuration as well as its
-G-code commands. DragonBreath's direct Moonraker connection supplies AUTO with
-printer state; the Klippy helper is not required for that path.
+The `dragonbreath-klipper` Python file may remain installed for AUTO, but its
+active `[dragonbreath]` configuration is itself a manual controller. It sends a
+safety OFF when it connects, disconnects, or Klippy shuts down, so a reconnect
+can disarm AUTO. DragonBreath's direct Moonraker connection supplies AUTO with
+printer state; the Klippy helper is not required for that workflow.
+
+## Decide the order of operations
+
+There is no single correct heating sequence. Choose one that suits the printer,
+material, enclosure, and desired soak time.
+
+| Desired behavior | Command shape |
+|---|---|
+| Start bed and chamber together, then wait for both | `M140`, `M141`, later `M190`, `M191` |
+| Heat and soak the chamber before starting the bed | `M141`, `M191`, then `M140`, `M190` |
+| Heat the bed before starting the chamber | `M140`, `M190`, then `M141`, optionally `M191` |
+| Start both but do not delay printing for the chamber | `M140`, `M141`, later `M190`; omit `M191` |
+| Add a fixed soak after temperatures are reached | Wait with `M190`/`M191`, then use the printer's dwell or soak macro |
+
+These are examples, not requirements. A printer may need to home before lowering
+or raising the bed, keep electronics-cooling fans running, park the toolhead away
+from a hot area, or limit its chamber target. Put those printer-specific decisions
+in its start macro or Machine start G-code.
 
 ## The OrcaSlicer trap
 
-When both **Support control chamber temperature** (printer preset) and
-**Activate temperature control** (filament preset) are enabled, OrcaSlicer emits
-this before the printer's Machine start G-code:
+When both **Support controlling chamber temperature** (printer preset) and
+**Activate temperature control** (filament preset) are enabled, OrcaSlicer emits:
 
 ```gcode
 M191 S<chamber-temperature>
 ```
 
-`M191` means **set the chamber target and wait until the chamber reaches it**.
-Because Orca places it before Machine start G-code, the usual bed command has not
-run yet. The chamber therefore warms without help from the bed, and the rest of
-the start sequence appears stuck. This is
+before the printer's entire Machine start G-code. `M191` is blocking, so the usual
+bed command has not run yet. The chamber heats alone and the rest of the startup
+appears stuck. This is
 [Orca's documented command ordering](https://github.com/OrcaSlicer/OrcaSlicer/wiki/material_temperatures#print-chamber-temperature),
 not a DragonBreath fault.
 
-After changing a preset, slice a small model and inspect the first lines of the
-generated G-code. Preset inheritance can leave the chamber option enabled in a
-derived filament or printer profile.
+Orca's default is effectively the “chamber first” policy. That may be desirable
+for some printers, but it is not automatic bed/chamber coordination. If a different
+policy is wanted, place the commands manually:
 
-### PAXX does not choose a warm-up workflow
+1. Leave the printer preset's **Support controlling chamber temperature** enabled.
+2. In each filament preset, set the desired chamber temperature but leave
+   **Activate temperature control unchecked**.
+3. Add `M141`/`M191` where they belong in Machine start G-code or the printer's
+   `PRINT_START` macro.
+4. Add `M141 S0` to the end workflow.
+5. Slice a small object and inspect the generated G-code to verify the actual
+   command order and rendered temperatures.
 
-Enabling the DragonBreath/Panda Breath component in PAXX installs the Klipper
-integration that makes `M141`, `M191`, and the `heater_generic` object work. It
-cannot safely rewrite each user's Orca presets or decide whether their bed, axes,
-fans, and chamber should preheat sequentially or together. PAXX users must still
-choose one of the workflows below and configure their slicer/start macro to match.
+Keeping the chamber temperature set while **Activate temperature control** is
+unchecked leaves Orca's `overall_chamber_temperature` and `chamber_temperature`
+placeholders available without its automatically injected `M191`/`M141` commands.
 
-## Workflow 1: DragonBreath AUTO
+## Slicer / Klipper control
 
-Use this when you want DragonBreath to follow the active filament without the
-slicer directly controlling the heater.
+For the common “start together, wait later” policy, find the printer's early
+non-blocking bed command:
 
-1. On the DragonBreath setup page, select **Klipper / Moonraker** and configure
-   the printer's Moonraker address.
-2. In DragonBreath Settings, configure the desired **Filament zones**.
-3. Arm **AUTO** from the DragonBreath dashboard or front-panel Auto button.
+```gcode
+M140 S{bed_temperature}
+```
+
+and start the chamber beside it:
+
+```gcode
+M140 S{bed_temperature}
+M141 S{chamber_temperature}
+```
+
+Then find the later bed wait:
+
+```gcode
+M190 S{bed_temperature}
+```
+
+and wait for the chamber beside it:
+
+```gcode
+M190 S{bed_temperature}
+M191 S{chamber_temperature}
+```
+
+This starts both heaters together. When execution reaches the waits, the bed stays
+hot while the chamber finishes. Moving `M191`, omitting it, or adding a soak after
+it produces the other policies described above.
+
+The placeholders shown here are illustrative. Use the variable names already
+provided by the slicer/printer profile. In Orca, the chamber target is normally
+`{overall_chamber_temperature}` (highest target across all filaments) or
+`{chamber_temperature[0]}` (first filament only).
+
+If the printer uses a parameterized `PRINT_START`, pass the bed and chamber values
+to that macro and put the same command sequence inside it. Do not duplicate its
+existing `M140`/`M190` calls. At print end, explicitly issue `M141 S0` unless an
+existing end hook already turns DragonBreath off.
+
+## DragonBreath AUTO
+
+Use AUTO when DragonBreath should follow its filament-zone settings without
+slicer-issued heater commands:
+
+1. Select **Klipper / Moonraker** on the DragonBreath setup page and configure the
+   printer's Moonraker address.
+2. Configure the desired **Filament zones** in DragonBreath Settings.
+3. Disable the active `dragonbreath-klipper`/printer-distribution chamber-heater
+   configuration. Leave DragonBreath's own Moonraker source enabled.
+4. In each Orca filament preset, leave the chamber temperature set if desired but
+   clear **Activate temperature control**. Leave **Support controlling chamber
+   temperature** enabled. Verify that sliced G-code contains no `M141` or `M191`.
+5. Arm **AUTO** from the DragonBreath dashboard or front-panel Auto button.
    DragonBreath always boots OFF, so AUTO must be armed again after a reboot.
-4. Disable the active `dragonbreath-klipper`/PAXX chamber-heater integration. The
-   device's own Moonraker control source remains enabled and supplies AUTO data.
-5. In each Orca filament preset, leave the chamber temperature set but clear
-   **Activate temperature control** so Orca does not emit `M191` at the start or
-   `M141` at the end. Leave the printer's **Support controlling chamber
-   temperature** option enabled. Verify the generated G-code contains neither
-   command.
 
-During an active print, DragonBreath reads the loaded material from Moonraker
-and applies its matching filament-zone target. With no active print, no material,
-no matching zone, or no Moonraker connection, AUTO waits with the heater off.
+During an active print, DragonBreath reads the loaded material from Moonraker and
+applies its matching filament-zone target. With no active print, no material, no
+matching zone, or no Moonraker connection, AUTO waits with the heater off.
 
-AUTO starts heating when the print becomes active, but it does **not** pause the
-print-start sequence until the chamber is hot. Use slicer/Klipper control if the
-print must heat-soak before extrusion begins.
+AUTO starts heating when the print becomes active, but it does not pause print
+start until the chamber is hot. Use slicer/Klipper control when a blocking heat
+soak is required.
 
-## Workflow 2: Slicer / Klipper control
+## Worked example: Snapmaker U1 / PAXX Orca profile
 
-Use this when the print-start sequence must coordinate the bed and chamber or
-must wait for a heat soak. Leave DragonBreath AUTO off. `M141` starts chamber
-heating without waiting; `M191` starts it and blocks until the target is reached.
+This is one application of the common “start together, wait later” policy. It is
+not a required DragonBreath sequence. The underscores below are normal G-code
+underscores; do not type backslashes before them.
 
-Do not use Orca's automatically injected `M191` if you want the bed and chamber
-to warm together. It runs before Machine start G-code, so adding an earlier bed
-command *inside* Machine start G-code cannot get ahead of it. Leave the printer's
-**Support controlling chamber temperature** option enabled, but clear the
-filament preset's **Activate temperature control** checkbox. Then verify the
-generated file no longer begins with `M191`.
-
-### Snapmaker U1 / PAXX Orca profile
-
-Do these steps exactly. The underscores shown below are normal G-code underscores;
-do not type backslashes before them.
-
-#### 1. Stop Orca from inserting its own early `M191`
-
-1. Open the **Filament settings** for each heated-chamber material.
-2. Under **Temperature → Print chamber temperature**, set the desired chamber
-   temperature but leave **Activate temperature control unchecked**.
-3. Save the filament preset.
-
-This distinction matters: the temperature value remains available to Machine
-start G-code through Orca's `overall_chamber_temperature` placeholder, while the
-unchecked **Activate temperature control** option prevents Orca from automatically
-placing a blocking `M191` ahead of Machine start G-code. The printer preset's
-**Support controlling chamber temperature** option must remain enabled.
-
-#### 2. Start the chamber beside the bed
-
-Open **Printer settings → Machine G-code → Machine start G-code**.
-
-Find these three consecutive lines near the top:
+In **Printer settings → Machine G-code → Machine start G-code**, find:
 
 ```gcode
 TIMELAPSE_START
@@ -123,8 +173,7 @@ M140 S{bed_temperature_initial_layer_single}
 M104 T{initial_extruder} S140
 ```
 
-Insert the new `M141` line immediately **after `M140` and before `M104`**, so the
-block reads exactly:
+Insert `M141` immediately after `M140`:
 
 ```gcode
 TIMELAPSE_START
@@ -133,13 +182,7 @@ M141 S{overall_chamber_temperature} ; start chamber, do not wait
 M104 T{initial_extruder} S140
 ```
 
-Do not delete or move the `M140` line. `M140` starts the bed and `M141` starts
-DragonBreath; neither command waits, so they now heat together during the U1's
-existing calibration and nozzle-cleaning sequence.
-
-#### 3. Wait for the chamber beside the existing bed wait
-
-Farther down in the same Machine start G-code, find these four consecutive lines:
+Later, find:
 
 ```gcode
 M106 S255
@@ -148,8 +191,7 @@ M190 S{bed_temperature_initial_layer_single}
 M107 P2
 ```
 
-Insert the new `M191` line immediately **after `M190` and before `M107 P2`**, so
-the block reads exactly:
+Insert `M191` immediately after `M190`:
 
 ```gcode
 M106 S255
@@ -159,95 +201,32 @@ M191 S{overall_chamber_temperature} ; wait for chamber; bed remains hot
 M107 P2
 ```
 
-`overall_chamber_temperature` uses the highest configured chamber target when a
-print contains multiple filaments. `{chamber_temperature[0]}` is the Orca
-alternative for the first filament only.
-
-Do not remove or relocate the existing `WAIT_CHAMBER_TEMP TIMEOUT=180` below this
-block. This edit preserves the U1's homing, feed/flow calibration, nozzle cleaning,
-bed-plate detection, chamber wait, and mesh sequence. The bed and chamber begin
-heating together during the existing preparation work. At the later waits, the
-bed reaches target first and remains hot while `M191` lets the chamber finish and
-soak.
-
-#### 4. Turn DragonBreath off when the print ends
-
-Open **Printer settings → Machine G-code → Machine end G-code** and add this as
-the first line unless the end G-code already contains it:
+Do not remove the profile's existing `WAIT_CHAMBER_TEMP TIMEOUT=180`. Add this as
+the first line of Machine end G-code unless it is already present:
 
 ```gcode
 M141 S0 ; chamber off
 ```
 
-#### 5. Verify one sliced file
-
-Slice a small test object, export the G-code, and inspect it as text. Confirm all
-four of these before printing:
-
-1. There is no `M191` before `SET_PRINT_AUTO_BED_LEVELING` or before Machine start
-   G-code.
-2. Near the top, `M140 ...` is immediately followed by `M141 S<number>`, where
-   the number is the expected non-zero chamber target.
-3. Later, `M190 ...` is immediately followed by `M191 S<number>` with the same
-   chamber target.
-4. The end G-code contains `M141 S0`.
-
-If Orca reports `overall_chamber_temperature` as an unknown placeholder, use
-`{chamber_temperature[0]}` in both added lines instead. Do not use different
-placeholders for the start and wait commands. If either command renders as `S0`,
-return to the filament preset and set a non-zero chamber temperature—but keep
-**Activate temperature control unchecked**.
-
-### Other Klipper profiles
-
-For a profile built around parameterized macros, pass the bed and chamber targets
-to a preheat macro. Parameter names vary between profiles, but its heating phase
-should have this shape:
-
-```ini
-[gcode_macro CHAMBER_PREHEAT]
-description: Start bed and DragonBreath together, then wait for both
-gcode:
-    {% set bed = params.BED|default(0)|float %}
-    {% set chamber = params.CHAMBER|default(0)|float %}
-    M140 S{bed}          ; start the bed; do not wait
-    M141 S{chamber}      ; start DragonBreath; do not wait
-    {% if bed > 0 %}
-        M190 S{bed}      ; wait for the bed
-    {% endif %}
-    {% if chamber > 0 %}
-        M191 S{chamber}  ; wait for the chamber; bed stays hot and soaking
-    {% endif %}
-```
-
-Call it from the printer's start macro with the bed and chamber temperatures
-supplied by the slicer. If the existing start G-code already starts or waits for
-the bed, merge these four commands into that heating phase instead of heating the
-bed twice.
-
-This sequence starts both heaters together, waits for the bed, and then keeps the
-bed at temperature while the chamber finishes. Bed position, homing, circulation
-fans, and any extra timed soak are printer-specific decisions and belong in the
-printer's start macro, not in the generic `M141`/`M191` definitions.
-
-At print end, explicitly stop the chamber with `M141 S0` unless the printer's end
-macro already does so.
+After slicing, verify that there is no `M191` before
+`SET_PRINT_AUTO_BED_LEVELING`, that the early `M140`/`M141` and later
+`M190`/`M191` pairs render in that order, and that both chamber commands contain
+the same expected non-zero numeric target. If Orca rejects
+`overall_chamber_temperature`, use `{chamber_temperature[0]}` in both places.
 
 ## Quick diagnosis
 
 - **Chamber heats first; bed stays cold:** Orca probably injected `M191` before
   Machine start G-code. Inspect the generated file, not only the preset UI.
-- **AUTO changes to On/Manual at print start:** the G-code sent `M141`, `M191`, or
-  `SET_HEATER_TEMPERATURE`. Remove those commands for the AUTO workflow.
+- **AUTO changes to On/Manual at print start:** the G-code sent a positive `M141`,
+  `M191`, or `SET_HEATER_TEMPERATURE`, or the active helper reconnected.
 - **AUTO is armed but not heating:** check that a print is active, Moonraker is
   connected, its active material is detected, and that material has a non-zero
   DragonBreath filament zone.
+- **A rendered chamber command says `S0`:** set a non-zero chamber temperature in
+  the filament preset, while keeping **Activate temperature control unchecked**.
 - **`M191` never completes:** confirm the requested value does not exceed the
   device's configured maximum (hard ceiling 70 °C) and is realistically reachable
   in the enclosure.
 - **Displayed chamber temperature seems wrong:** compare it with a trusted probe,
   then use the bounded sensor calibration in Settings. Do not calibrate by feel.
-
-DragonBreath remains responsible for its independent sensor checks, target clamp,
-element foldback, over-temperature shutdown, cooldown airflow, and communications
-watchdog in both workflows.
