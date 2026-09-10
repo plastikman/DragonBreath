@@ -128,8 +128,8 @@ authenticated response that creates a POWER_ON lease returns it.
 transitions; ordinary temperature samples and successful heartbeats do not
 increment it.
 
-`environment.control_source` is the configured control binding — `klipper`,
-`bambu`, or `ha` — chosen on `/setup` (distinct from the top-level `source`, which is
+`environment.control_source` is the configured control binding — for example
+`klipper`, `bambu`, `prusa`, or `ha` — chosen on `/setup` (distinct from the top-level `source`, which is
 the last actor that changed state). The printer's configured Bambu serial is intentionally
 not exposed by the public state API; it remains internal to the Bambu MQTT connection.
 `environment.bed_target_c` is the **commanded** bed setpoint from the active source and
@@ -149,8 +149,9 @@ cutoff.
 `environment.auto_filtering` is `true` while the fan-only filtration band is driving
 the blower — whenever `filter_auto` is enabled, Moonraker is connected, and the bed
 **setpoint** is at/above `filter_temp_c`. This is a **standing** band, independent of
-mode (it runs even while idle); the heater still engages only in AUTO at the higher
-bed threshold.
+mode (it runs even while idle). AUTO heat engagement is separate: filament-aware
+sources use the active filament-zone target, while bed-follow sources use their
+configured target and bed threshold.
 
 `params` reports the *remembered* mode parameters — the values most recently
 accepted for each mode, used to pre-fill the UI and to re-arm a mode when the
@@ -181,8 +182,9 @@ Supported commands:
   safer OFF.
 - `{"name":"power_on","target_c":45}` — creates a new device-issued remote
   lease and invalidates any previous lease.
-- `{"name":"auto","target_c":45,"bed_threshold_c":60}` — device policy follows
-  the observed Moonraker bed state.
+- `{"name":"auto","target_c":45,"bed_threshold_c":60}` — arms device AUTO.
+  Filament-aware sources use the active filament-zone target; bed-follow sources
+  use `target_c` once the observed bed setpoint reaches `bed_threshold_c`.
 - `{"name":"drying_start","target_c":50,"hours":4}` — bounded to 1–12 hours.
 - `{"name":"drying_stop"}` — unconditional safer stop.
 - `{"name":"filter","percent":100}` — manual fan-only filtration blower (0 = off,

@@ -20,6 +20,10 @@ re-implemented.
 > firmware with no warranty — read [`docs/SAFETY.md`](docs/SAFETY.md) and
 > supervise early runs.
 
+**Start here:** **[How to use the chamber heater](docs/USING_THE_HEATER.md)** —
+choose AUTO or slicer/Klipper control, and avoid OrcaSlicer's blocking-`M191`
+ordering trap.
+
 **Docs:** full feature set → [`docs/FEATURES.md`](docs/FEATURES.md) · control API →
 [`docs/api-v2.md`](docs/api-v2.md) · safety model → [`docs/SAFETY.md`](docs/SAFETY.md) ·
 OEM parity → [`docs/OEM_PARITY.md`](docs/OEM_PARITY.md) · hardware →
@@ -133,7 +137,7 @@ without touching the firmware.
 | Front-panel hard reset | ✅ **Hold Power + Auto 5 s** → LEDs flash 3× → wipes config (Wi-Fi/token/policy/calibration) + reboots to the setup AP. No computer needed; USB twin is `flash.py --erase-nvs` |
 | Web OTA update | ✅ Dual-OTA + rollback; upload from the UI, verified on hardware — accepts a DragonBreath **or** a stock `panda_breath` image (for revert); refused while heating |
 | HIL (`pb_hil` / `tools/hil.py`) | ✅ CH341 devboard suite and non-heating real-Panda UART build/flash/no-flash workflows qualified on hardware; native-USB runtime pending on the tested devboard |
-| Control source (`dc_source`/`dc_bambu`/`pb_ha`) | ✅ Single-select on `/setup` (mutually exclusive): Klipper/Moonraker (default, validated) · Home Assistant MQTT Discovery (validated on live HA) · Bambu LAN MQTT (validated on real hardware) |
+| Control source (`dc_source`) | ✅ Single-select on `/setup`: Klipper/Moonraker (default) · Klipper MQTT · Home Assistant MQTT Discovery · Bambu LAN MQTT · PrusaLink; optional HA telemetry remains read-only when another source controls heat |
 | On-device diagnostics pages | ✅ `/diag` (live SSE telemetry + trend + CSV) and `/console` (firmware `ESP_LOGx` viewer via auth-gated `GET /api/v2/console`) — shipped v0.8.0 |
 | Diagnostics (`tools/diag.py`) | ✅ Read-only 2 Hz logger (chamber/PTC/SSR/mode/fault + resolved Rref) → live view + CSV; run during a heat cycle to capture behavior. `python3 tools/diag.py [host] [token]` |
 
@@ -159,6 +163,12 @@ chamber given enough soak time will reach higher and hold it; a leaky one (taped
 seams, thin panels) plateaus lower no matter how long it runs. If you're stalling
 short of a target, add insulation and allow more warm-up time before assuming a
 hardware limit. 60–65 °C covers ASA/ABS comfortably.
+
+> **The heater does not automatically coordinate the bed.** On OrcaSlicer,
+> chamber-temperature control emits a blocking `M191` *before* Machine start
+> G-code, so the bed has normally not started yet. Choose either DragonBreath
+> AUTO or a slicer/Klipper start macro that starts both heaters; see
+> **[Using the chamber heater](docs/USING_THE_HEATER.md)**.
 
 ## Screenshots
 <p>
@@ -217,6 +227,9 @@ others are disabled — there is exactly one controller.
   [dragonbreath-klipper](https://github.com/plastikman/dragonbreath-klipper) helper it
   shows up as `[heater_generic dragonbreath]` (M141/M191) plus a fan-only filtration
   toggle, and AUTO mode follows the loaded filament's zone profile. Validated end-to-end on hardware.
+  When an active `[dragonbreath]` helper config is detected, slicer/Klipper owns
+  chamber heat and AUTO is hidden. Disable the helper config to use AUTO. See
+  [the heater workflow guide](docs/USING_THE_HEATER.md).
 - **Klipper MQTT** — an alternative for managed Klipper installs that permit
   `moonraker.conf`, `printer.cfg`, and broker configuration but cannot install a
   Klippy extra. Save its broker settings on `/setup`, then open `/km-config` to

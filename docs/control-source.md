@@ -9,15 +9,16 @@ feature. So there is always a single owner of the setpoint — never several.
 
 | Source | What it does |
 |---|---|
-| **Klipper (Moonraker)** | Follows the printer over the Moonraker WebSocket. AUTO mode triggers on the **bed setpoint**. The default, and the shipped path. |
-| **Bambu (LAN)** | Follows a Bambu Lab printer's chamber/bed over LAN MQTT (read-only from the printer; DragonBreath still owns the heater). |
+| **Klipper (Moonraker)** | Follows the printer over the Moonraker WebSocket. AUTO follows the active print's DragonBreath filament-zone target. The default and shipped path. |
+| **Bambu (LAN)** | Follows a Bambu Lab printer over LAN MQTT. AUTO follows the active print's DragonBreath filament-zone target (read-only from the printer; DragonBreath still owns the heater). |
+| **Prusa (PrusaLink)** | Follows the printer over PrusaLink. Because PrusaLink does not report filament type, AUTO follows the bed setpoint and the configured bed threshold. |
 | **Home Assistant** | HA is the **controller** — a climate entity + sensors auto-appear via MQTT discovery, and HA sets target / on / off. |
 | **None (unbound)** | No external controller. The heater is driven only from the DragonBreath web UI (or left idle). |
 
-Only the **selected** source is connected. If you pick Klipper, the Bambu and HA
-clients do not run at all — and vice-versa. In particular, **Home Assistant is
-full-control only while it is the selected source.** When a printer (Klipper or
-Bambu) is bound, HA is not connected — there is no background HA link.
+Only the **selected** source has control. In particular, **Home Assistant is
+full-control only while it is the selected source.** It may optionally publish
+read-only telemetry alongside a printer source, but it cannot send heater commands
+in that monitor role.
 
 ### Klipper AUTO vs. the `dragonbreath-klipper` helper
 
@@ -53,10 +54,24 @@ page mirrors stock's "disconnect":
 Unbinding a printer is how you "make HA the primary": once no printer is bound,
 select Home Assistant and it becomes the sole controller with full control.
 
-> **Why not run HA as a read-only monitor alongside Klipper/Bambu?** We considered
-> it and chose not to: a second always-on connection — even read-only — muddies
-> "who owns the heater" and invites exactly the ownership confusion the single-source
-> rule exists to prevent. One source, one owner, no ambiguity.
+## Control source is not control mode
+
+Selecting **Klipper / Moonraker** as the source does not mean that slicer commands
+and AUTO can drive the target together. In Klipper source mode, choose either:
+
+- DragonBreath AUTO, with no `M141`/`M191` heater commands in the sliced G-code; or
+- manual slicer/Klipper control through `M141`, `M191`, or
+  `SET_HEATER_TEMPERATURE`, with AUTO off.
+
+An active `[dragonbreath]` Klippy configuration declares slicer/Klipper ownership,
+so the UI hides AUTO. Disable that configuration and restart Klipper to make AUTO
+available. See
+[`USING_THE_HEATER.md`](USING_THE_HEATER.md) for setup recipes and OrcaSlicer's
+important command-ordering behavior.
+
+Read-only Home Assistant telemetry does not create a second owner: the device does
+not subscribe to HA command topics in monitor mode. One selected control source
+still owns heater intent.
 
 ## Safety note
 

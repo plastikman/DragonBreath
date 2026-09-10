@@ -7,6 +7,20 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+### Documentation
+- Added a task-focused chamber-heater guide explaining that a new heater requires
+  printer/slicer workflow integration rather than "just working." It makes AUTO
+  and slicer/Klipper control explicitly alternative workflows, documents several
+  valid heating orders, warns about OrcaSlicer's leading blocking `M191`, and
+  covers printer-specific auxiliary-fan, bed-position, toolhead-position, homing,
+  and thermal-expansion considerations. A recommended CoreXY starting pattern
+  starts bed/chamber together, parks the toolhead, raises the bed, circulates at
+  roughly 70%, then waits and soaks. It also explains why detecting an active
+  `[dragonbreath]` controller hides AUTO; the Snapmaker U1/PAXX profile remains
+  only a worked example.
+- Updated stale feature, control-source, API, and OEM-parity descriptions for the
+  current filament-follow AUTO behavior and the PrusaLink bed-follow exception.
+
 ### Added
 - Expose product-owned heater control telemetry in API v2 state snapshots:
   commanded SSR-window duty, the active PID approach limit, and the dominant
