@@ -93,6 +93,8 @@ typedef struct {
     float bed_target_c;   // commanded printer bed setpoint (AUTO/filter trigger)
     bool auto_engaged;
     bool auto_filtering;          // AUTO fan-only band active (blower on, no heat)
+    bool klipper_helper_present;  // the Klipper [dragonbreath] helper is installed on
+                                  // Moonraker (an active controller) — regardless of mode
     bool auto_blocked_by_helper;  // AUTO is armed but held off because the Klipper
                                   // [dragonbreath] helper is the active controller
     float auto_bed_threshold_c;

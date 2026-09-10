@@ -1136,8 +1136,10 @@ void pb_policy_get_snapshot(pb_policy_snapshot_t *out)
     out->bed_target_c = s.bed_target_c;
     out->auto_engaged = s.auto_engaged;
     out->auto_filtering = s.auto_filtering;   // standing band — independent of mode
-    // AUTO is armed but held off because the Klipper helper owns the chamber — lets
-    // the UI explain why AUTO isn't heating instead of looking broken.
+    // The Klipper [dragonbreath] helper is installed (mode-independent), so the UI
+    // can warn that AUTO is unavailable before it's even armed; auto_blocked_by_helper
+    // is the narrower "armed right now but held off" case.
+    out->klipper_helper_present = s.klipper_helper_present;
     out->auto_blocked_by_helper = (s.mode == PB_MODE_AUTO && s.klipper_helper_present);
     out->auto_bed_threshold_c = s.auto_bed_threshold_c;
     out->params = s.params;
