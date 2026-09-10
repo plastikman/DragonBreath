@@ -55,6 +55,39 @@ material, enclosure, and desired soak time.
 | Start both but do not delay printing for the chamber | `M140`, `M141`, later `M190`; omit `M191` |
 | Add a fixed soak after temperatures are reached | Wait with `M190`/`M191`, then use the printer's dwell or soak macro |
 
+### Recommended starting pattern
+
+For many enclosed printers—particularly CoreXY machines—a useful starting pattern
+is:
+
+1. Start the bed with `M140` and DragonBreath with `M141`, without waiting.
+2. Use the printer's safe homing/parking logic to move the toolhead out of the
+   primary circulation path.
+3. Move the bed high in the chamber, where that is safe for the machine, to leave
+   more open circulation volume below it.
+4. Run the printer's auxiliary circulation fan at about **70%**.
+5. Wait for the bed with `M190`, wait for the chamber with `M191`, then run the
+   desired timed or temperature-based soak.
+6. Restore whatever toolhead, bed, and fan state the printer needs, then continue
+   its normal probing, cleaning, and print-start sequence.
+
+In outline—not as copy-paste G-code for an unknown printer:
+
+```gcode
+M140 S{bed_temperature}       ; start bed
+M141 S{chamber_temperature}   ; start chamber
+<printer-specific safe home and toolhead park>
+<printer-specific high-bed position for CoreXY>
+<printer-specific auxiliary fan at 70%>
+M190 S{bed_temperature}       ; wait for bed
+M191 S{chamber_temperature}   ; wait for chamber
+<printer-specific soak>
+```
+
+This recommendation is deliberately a pattern rather than a universal macro.
+Confirm the safe motion order, bed coordinate, aux-fan mapping, and soak condition
+for the actual printer before implementing it.
+
 These are examples, not requirements. A printer may need to home before lowering
 or raising the bed, keep electronics-cooling fans running, park the toolhead away
 from a hot area, or limit its chamber target. Put those printer-specific decisions
@@ -245,10 +278,10 @@ M141 S0 ; chamber off
 
 The supplied U1 start G-code also contains `M106 P2 S0` and later `M107 P2`. If
 this profile maps `P2` to the printer's auxiliary circulation fan, the `S0` leaves
-that fan off during warm-up. Users who want forced circulation can change it to
-their desired 0–255 speed and keep or relocate the later fan-off command. Verify
-the printer's fan mapping first; this fan is separate from DragonBreath's
-automatically controlled blower.
+that fan off during warm-up. For the recommended 70% circulation starting point,
+change it to `M106 P2 S179` after confirming the U1 profile's `P2` mapping. Keep or
+relocate the later `M107 P2` depending on when circulation should stop. This fan is
+separate from DragonBreath's automatically controlled blower.
 
 After slicing, verify that there is no `M191` before
 `SET_PRINT_AUTO_BED_LEVELING`, that the early `M140`/`M141` and later
