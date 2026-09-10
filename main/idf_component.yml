@@ -2,44 +2,44 @@ dependencies:
   dc_prusa:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_prusa
-    version: v0.33.0
+    version: v0.34.1
   dc_evlog:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_evlog
-    version: v0.33.0
+    version: v0.34.1
   dc_source:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_source
-    version: v0.33.0
+    version: v0.34.1
   dc_bambu:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_bambu
-    version: v0.33.0
+    version: v0.34.1
   dc_wifi:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_wifi
-    version: v0.33.0
+    version: v0.34.1
   dc_moonraker:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_moonraker
-    version: v0.33.0
+    version: v0.34.1
   dc_ui:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_ui
-    version: v0.33.0
+    version: v0.34.1
   dc_mqtt:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_mqtt
-    version: v0.33.0
+    version: v0.34.1
   dc_portal:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_portal
-    version: v0.33.0
+    version: v0.34.1
   dc_pid:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_pid
-    version: v0.33.0
+    version: v0.34.1
   dc_peer:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_peer
-    version: v0.33.0
+    version: v0.34.1
