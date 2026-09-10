@@ -4,7 +4,7 @@ DragonBreath is not intended to reproduce the stock firmware byte-for-byte. This
 matrix records which user-visible Panda Breath behaviors are implemented, still
 planned, deliberately changed for safety, or intentionally omitted.
 
-Current as of **v1.0.1-rc1**. Since the earlier matrix: v0.8.0 added a selectable
+Current as of **v1.1.16**. Since the earlier matrix: v0.8.0 added a selectable
 control source (Klipper / Bambu / Home Assistant) plus the `/diag` and `/console` web
 pages; v1.0.0 moved to a no-USB install/revert model on the stock partition layout;
 v1.0.1 makes the fan-only filtration band a standing behavior (opt-in, off by default).
@@ -12,13 +12,13 @@ v1.0.1 makes the fan-only filtration band a standing behavior (opt-in, off by de
 | Stock/OEM behavior | DragonBreath status | Notes |
 |---|---|---|
 | Manual chamber target | **Implemented** | Local Web UI and Klipper `M141`/`M191`; device-side regulation and limits remain authoritative. |
-| Follow-printer-bed automatic mode | **Partial** | Policy/API support is present: live Moonraker bed temperature, 3 °C disengage hysteresis, and fail-off on disconnect. The shipped dashboard control is not yet accepted as end-to-end validated. |
+| Automatic chamber mode | **Implemented** | Klipper/Moonraker and Bambu follow the active print's configured filament-zone target. PrusaLink, which has no filament metadata, follows its bed setpoint and the configured bed threshold. Missing source/profile data fails to heat-off. |
 | Timed filament drying | **Implemented** | A target plus a bounded 1–12 hour duration with automatic shutoff, driven from the dashboard Dry screen and API v2 (`drying_start` / `drying_stop`). Material presets are implemented (PLA 45 °C/6 h, PETG 65 °C/4 h, ABS 70 °C/4 h, Nylon 55 °C/8 h — one tap pre-fills target + duration). Validated on hardware. |
 | Chamber and PTC temperature display | **Implemented** | Both sensors and their health are exposed in the dashboard and API v2 state. |
 | Sensor-fault and over-temperature shutdown | **Implemented** | Heater fails closed; fixed 85 °C chamber and 105 °C PTC cutoffs are not user-configurable. |
 | Fan follows heater | **Implemented** | TRIAC is held on/off and never phase-angle PWM'd. |
 | Residual-heat fan purge | **Implemented** | Session-gated cooldown with hysteresis around the configurable `cool_release` temp (30–65 °C, default 40 °C): engages one 3 °C band above it, releases only once **both** chamber and PTC are below it; an unknown sensor keeps the fan on. Strictly session-gated: the fan never starts on temperature alone, and a power-cycle-while-hot does not spin it. The opt-in temperature-latched policy was **intentionally not added** for that reason. Fault airflow remains unconditional. |
-| Front-panel mode LEDs | **Implemented** | All four outputs are driven from the authoritative policy snapshot: Power is solid whenever the device is up and blinks on fault; On, Auto, and Dry each light for their own mode. Auto slow-blinks when armed but not engaged (no Moonraker link, or bed below the threshold). Power is release-only — GPIO21 is also the serial console TX. |
+| Front-panel mode LEDs | **Implemented** | All four outputs are driven from the authoritative policy snapshot: Power is solid whenever the device is up and blinks on fault; On, Auto, and Dry each light for their own mode. Auto slow-blinks when armed but not engaged (for example, no source link or no matching filament zone). Power is release-only — GPIO21 is also the serial console TX. |
 | Front-panel buttons | **Implemented** | All four (Power GPIO9, Auto GPIO8, On GPIO10, Dry GPIO2) are polled with debounce and short/long-press detection. A short press toggles the button's labeled mode (arming from the remembered parameters); a 2 s long-press latches a panic-off, except a long-press on Power while faulted attempts a fault clear. Every button action is attributed to the panel and invalidates any remote lease. A button held at power-on is ignored until released (GPIO9/8/2 are strapping pins). |
 | Local status/configuration UI | **Implemented** | Responsive, touch-first single-page dashboard with manual/automatic/drying control screens, a settings screen (safety limits, sensor calibration, LEDs), an at-a-glance status panel (fan + reason, controller, auto/drying, printer, fault), and setup/OTA pages. Also a read-only **`/diag`** page (live SSE telemetry — chamber/PTC/SSR/mode/fault + trend + CSV) and a **`/console`** page (firmware `ESP_LOGx` ring viewer, backed by auth-gated `GET /api/v2/console`). Light/dark themes. |
 | Wi-Fi captive setup and mDNS | **Implemented** | Product identity is DragonBreath; reachable as `dragonbreath.local` when mDNS works. |

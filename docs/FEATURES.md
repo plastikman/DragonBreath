@@ -1,8 +1,8 @@
 # DragonBreath — feature set
 
-Current as of **v1.0.1-rc1**. Open ESP-IDF firmware for the BIGTREETECH Panda Breath
+Current as of **v1.1.16**. Open ESP-IDF firmware for the BIGTREETECH Panda Breath
 (ESP32-C3) chamber heater with a selectable control source (Klipper/Moonraker, Home
-Assistant, or Bambu LAN) + local web control.
+Assistant, Bambu LAN, or PrusaLink) + local web control.
 
 See [`OEM_PARITY.md`](OEM_PARITY.md) for the explicit implemented/planned/
 intentionally-changed feature matrix.
@@ -16,8 +16,8 @@ heat after a reboot.
 | Mode | What it does | How it's triggered |
 |---|---|---|
 | **Off** | Heater off. | Boot default; `off` command (always accepted). |
-| **Manual / Power-On** | Holds the chamber at a set target. Remote sessions take a device-issued lease and must heartbeat to stay alive. | `power_on` command (web "Manual heat", or Klipper `M141`/`SET_HEATER_TEMPERATURE`). |
-| **Automatic (follow bed)** | Watches the printer's bed temperature (via Moonraker) and heats the chamber to the target whenever the bed is at/above a threshold; disengages below threshold − 3 °C. Autonomous (no host heartbeat), requires the Moonraker link. | `auto` command / web "Follow printer bed". |
+| **Manual / Power-On** | Holds the chamber at a set target. Remote sessions take a device-issued lease and must heartbeat to stay alive. | `power_on` command (web "Manual heat", or Klipper `M141`/`M191`/`SET_HEATER_TEMPERATURE`). |
+| **Automatic** | For filament-aware Klipper and Bambu sources, follows the active print's configured filament-zone target. For bed-only PrusaLink, heats to the configured target when the bed setpoint reaches its threshold. Waits with heat off if the source or required profile data is unavailable. | `auto` command / dashboard Auto control / front-panel Auto button. |
 | **Filament drying** | Holds the chamber at a target for a bounded duration (1–12 h), then auto-off. Material presets pre-fill target + duration. | `drying_start` / web "Filament drying". |
 | **Fan-only filtration** | Runs the chamber blower with **no heat** to filter/circulate air. Two paths: (a) the automatic **standing band** — the blower runs alone whenever `filter_auto` is enabled (**off by default**) + the source is connected + the bed **setpoint** reaches `filter_temp` (default 30 °C), independent of mode (even while idle); (b) a mode-independent manual toggle. Enabling manual filtration is idle-only (rejected while heating/cooling); turning it off always works. | `filter` command / web "Filtration" button; standing band via `filter_temp`/`filter_auto`. |
 
@@ -27,17 +27,22 @@ accepted and never cached.
 
 **Control source (choose one).** The device binds to exactly one printer/controller
 at a time, selected on `/setup`: **Klipper/Moonraker** (default, hardware-validated),
+**Klipper MQTT** (for managed installs that cannot add a Klippy extra),
 **Home Assistant** (native MQTT Discovery — climate entity + chamber/element sensors;
-validated against a live HA instance), or **Bambu LAN** (read-only, follows the
-loaded filament's zone profile; validated on a real printer). They are mutually exclusive; the
-selection drives AUTO's bed feed and is reported as `environment.control_source`
-(`klipper`/`bambu`/`ha`) in the state API. The heater safety model is identical and
-source-independent.
+validated against a live HA instance), **Bambu LAN** (read-only, follows the
+loaded filament's zone profile; validated on a real printer), or **PrusaLink**
+(bed-follow). They are mutually exclusive and reported as
+`environment.control_source` in the state API. The heater safety model is
+identical and source-independent.
 
-AUTO and filament drying are implemented in the policy/API; drying is validated
-end-to-end on hardware. The AUTO dashboard control is still tracked as partial
-until its user-facing feedback is fully validated; see
-[`OEM_PARITY.md`](OEM_PARITY.md).
+For Klipper users, AUTO and slicer-issued `M141`/`M191` are alternative workflows.
+Positive targets from those commands request a manual POWER_ON session and replace AUTO. OrcaSlicer also
+emits a blocking `M191` before Machine start G-code when chamber control is enabled,
+before the normal bed command. See [`USING_THE_HEATER.md`](USING_THE_HEATER.md) for
+the two supported workflows and a bed-plus-chamber preheat macro.
+
+AUTO and filament drying are implemented and validated end-to-end on hardware;
+see [`OEM_PARITY.md`](OEM_PARITY.md).
 
 ## Safety
 
@@ -79,9 +84,9 @@ Defense-in-depth — see [`SAFETY.md`](SAFETY.md) for the full model.
   (on/off, **default off** — opt-in) control the fan-only filtration band. It is a
   **standing** band (stock-shaped): once enabled, whenever Moonraker is connected the
   blower runs alone once the print's bed **setpoint** reaches `filter_temp` —
-  independent of mode, so it filters even on prints that never reach the AUTO
-  heat-engage threshold and while idle. The heater still engages only in AUTO at the
-  higher bed threshold. (Off-by-default diverges from stock; see
+  independent of mode, so it filters even while idle. AUTO heat engagement is
+  separate and uses either the active filament zone or, for a bed-follow source,
+  its configured bed threshold. (Off-by-default diverges from stock; see
   [`OEM_PARITY.md`](OEM_PARITY.md).)
 
 Exposed via `GET`/`POST /settings` and the web UI's Settings cards. The fixed
@@ -194,13 +199,11 @@ exact-lease heartbeats, reactor-safe). Deploy lockstep with the firmware.
 The dashboard can also be embedded in the Fluidd/Mainsail printer view via a
 Moonraker `[webcam]` `iframe` — see the DragonBreath README.
 
-For AUTO mode, DragonBreath reads the bed state from whichever **control source** is
-selected on `/setup` (see *Control modes* above): Moonraker (Klipper, default), Home
-Assistant over MQTT, or a Bambu printer over its LAN MQTT. This mirrors the stock
-firmware's own multi-source support (Moonraker / Bambu MQTT / Home Assistant MQTT) —
-Klipper is the default and hardware-validated path, and HA and Bambu are both
-validated on real hardware. None of these require a vendor cloud (Bambu uses the
-printer's on-device LAN broker).
+For AUTO mode, DragonBreath reads print/material state from the **control source**
+selected on `/setup`. Klipper/Moonraker and Bambu are filament-aware; PrusaLink is
+bed-follow because it does not report filament type. Home Assistant and Klipper-MQTT
+drive target/mode commands instead of supplying AUTO environment data. None of
+these require a vendor cloud (Bambu uses the printer's on-device LAN broker).
 
 ## Platform / release
 

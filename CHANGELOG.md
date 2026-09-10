@@ -7,6 +7,14 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+### Documentation
+- Added a task-focused chamber-heater guide that makes AUTO and slicer/Klipper
+  control explicitly alternative workflows, documents that manual `M141`/`M191`
+  commands replace AUTO, warns that OrcaSlicer injects blocking `M191` before
+  Machine start G-code, and provides a simultaneous bed/chamber preheat macro.
+- Updated stale feature, control-source, API, and OEM-parity descriptions for the
+  current filament-follow AUTO behavior and the PrusaLink bed-follow exception.
+
 ### Added
 - Expose product-owned heater control telemetry in API v2 state snapshots:
   commanded SSR-window duty, the active PID approach limit, and the dominant

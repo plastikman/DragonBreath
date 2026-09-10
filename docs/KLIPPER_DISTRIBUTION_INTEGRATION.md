@@ -49,6 +49,23 @@ There are two independent network relationships in Klipper control-source mode:
 No MQTT broker, Moonraker plug-in, or special Moonraker configuration is
 required for the native Klippy-extra path.
 
+### AUTO and manual G-code are alternative workflows
+
+The helper's Python file can be installed while DragonBreath AUTO is used, but its
+active `[dragonbreath]` configuration is a manual controller. As required below,
+it sends a safety OFF on connect, orderly disconnect, and Klippy shutdown; a
+reconnect can therefore disarm AUTO. Slicer-issued `M141`, `M191`, and
+`SET_HEATER_TEMPERATURE` commands with a positive target also start a manual
+POWER_ON session and replace AUTO. A distribution should provide a way to disable the active helper config,
+tell users to choose one workflow, and link to
+[`USING_THE_HEATER.md`](USING_THE_HEATER.md).
+
+OrcaSlicer deserves an explicit warning. With chamber-temperature control enabled,
+it emits a blocking `M191` before Machine start G-code. The usual bed command has
+not run yet, so warm-up is sequential. For simultaneous bed/chamber warm-up, disable
+Orca's injected command, pass its chamber value to `PRINT_START`, start the bed and
+chamber non-blocking, and then wait for each inside the printer macro.
+
 ## Responsibilities and safety boundaries
 
 ### DragonBreath firmware
