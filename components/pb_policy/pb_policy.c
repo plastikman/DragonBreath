@@ -75,6 +75,8 @@ typedef struct {
     uint8_t requested_fan_percent;
 
     bool mk_connected;
+    bool klipper_helper_present; // Klipper [dragonbreath] helper is installed (an
+                                 // active manual controller) -> AUTO must not heat
     float bed_c;          // measured bed temperature (display only)
     float bed_target_c;   // commanded bed setpoint (AUTO/filter trigger)
     float auto_bed_threshold_c;
@@ -705,6 +707,14 @@ void pb_policy_set_env(
     xSemaphoreGive(s_lock);
 }
 
+void pb_policy_set_klipper_helper(bool present)
+{
+    if (!s_lock) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s.klipper_helper_present = present;
+    xSemaphoreGive(s_lock);
+}
+
 pb_policy_result_t pb_policy_heartbeat(const pb_policy_lease_t *lease)
 {
     if (!s_lock || !lease || lease->id[0] == '\0')
@@ -963,7 +973,13 @@ void pb_policy_tick(void)
             // and always to that target. Safety cutoffs are evaluated elsewhere and
             // are unaffected; this only ever narrows when AUTO heats.
             bool was_engaged = s.auto_engaged;
-            s.auto_engaged = (s.mk_connected && s.src_target_c > 0.0f);
+            // When the Klipper [dragonbreath] helper is installed it is the active
+            // manual controller; AUTO must not also drive the heater (two pieces of
+            // software cannot own the target). AUTO stays armed but never engages
+            // while the helper is present — the helper's commands drive POWER_ON
+            // instead. Remove the helper and AUTO resumes on the next tick.
+            s.auto_engaged = (!s.klipper_helper_present
+                              && s.mk_connected && s.src_target_c > 0.0f);
             if (s.auto_engaged != was_engaged)
                 revision_advance_locked(s.source);
             if (s.auto_engaged) {
@@ -1120,6 +1136,11 @@ void pb_policy_get_snapshot(pb_policy_snapshot_t *out)
     out->bed_target_c = s.bed_target_c;
     out->auto_engaged = s.auto_engaged;
     out->auto_filtering = s.auto_filtering;   // standing band — independent of mode
+    // The Klipper [dragonbreath] helper is installed (mode-independent), so the UI
+    // can warn that AUTO is unavailable before it's even armed; auto_blocked_by_helper
+    // is the narrower "armed right now but held off" case.
+    out->klipper_helper_present = s.klipper_helper_present;
+    out->auto_blocked_by_helper = (s.mode == PB_MODE_AUTO && s.klipper_helper_present);
     out->auto_bed_threshold_c = s.auto_bed_threshold_c;
     out->params = s.params;
     out->drying = s.mode == PB_MODE_DRYING;

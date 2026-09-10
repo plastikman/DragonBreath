@@ -211,6 +211,11 @@ static cJSON *state_json(const pb_policy_snapshot_t *s)
     add_num1(environment, "bed_target_c", s->bed_target_c);
     cJSON_AddBoolToObject(environment, "auto_engaged", s->auto_engaged);
     cJSON_AddBoolToObject(environment, "auto_filtering", s->auto_filtering);
+    // The Klipper [dragonbreath] helper is installed (mode-independent) so the
+    // dashboard can warn AUTO is unavailable before arming; auto_blocked_by_helper
+    // is the narrower "AUTO armed but held off right now" case.
+    cJSON_AddBoolToObject(environment, "klipper_helper_present", s->klipper_helper_present);
+    cJSON_AddBoolToObject(environment, "auto_blocked_by_helper", s->auto_blocked_by_helper);
     add_num1(environment, "auto_bed_threshold_c", s->auto_bed_threshold_c);
 
     cJSON *drying = cJSON_AddObjectToObject(o, "drying");

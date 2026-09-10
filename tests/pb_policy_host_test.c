@@ -377,6 +377,42 @@ static void test_auto_requires_live_source(void)
     CHECK(snap.effective_target_c == 0.0f);
 }
 
+// The Klipper [dragonbreath] helper is itself a manual chamber controller; when it
+// is installed (db_present over Moonraker) AUTO must not also drive the heater. AUTO
+// stays armed but never engages while the helper is present, and resumes once it's
+// gone — two pieces of software can't own the target.
+static void test_klipper_helper_suppresses_auto(void)
+{
+    reset_fixture();
+    CHECK(pb_policy_set_auto(
+        60.0f, 100.0f, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+
+    // Baseline: connected source + zone target engages AUTO.
+    pb_policy_set_env(20.0f, 0.0f, true, 55.0f, NAN);
+    pb_policy_tick();
+    pb_policy_snapshot_t snap = snapshot();
+    CHECK(snap.auto_engaged);
+    CHECK(snap.effective_target_c == 55.0f);
+
+    // Helper appears on Moonraker -> AUTO defers (no heat), surfaced as blocked but
+    // still armed (mode unchanged).
+    pb_policy_set_klipper_helper(true);
+    pb_policy_tick();
+    snap = snapshot();
+    CHECK(!snap.auto_engaged);
+    CHECK(snap.auto_blocked_by_helper);
+    CHECK(snap.mode == PB_MODE_AUTO);
+    CHECK(snap.effective_target_c == 0.0f);
+
+    // Helper removed -> AUTO resumes on the next tick.
+    pb_policy_set_klipper_helper(false);
+    pb_policy_tick();
+    snap = snapshot();
+    CHECK(snap.auto_engaged);
+    CHECK(!snap.auto_blocked_by_helper);
+    CHECK(snap.effective_target_c == 55.0f);
+}
+
 // External printer chamber temperature is an AUTO-only regulation input.
 // Disconnects, invalid telemetry, Manual, and Drying all fall back to the local NTC.
 static void test_external_chamber_control_forwarding(void)
@@ -1251,6 +1287,7 @@ int main(void)
     test_new_command_supersedes_old_lease_and_off_is_unconditional();
     test_lease_expiry_latches_watchdog_fault();
     test_auto_requires_live_source();
+    test_klipper_helper_suppresses_auto();
     test_auto_source_zone_overrides_bed_threshold();
     test_external_chamber_control_forwarding();
     test_auto_filtration_band_fan_only_not_cooldown();

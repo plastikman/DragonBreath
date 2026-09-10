@@ -239,6 +239,8 @@ static void control_task(void *arg)
         float src_target_c = 0.0f;
         float chamber_src_c = NAN;
         bool  src_connected = false;
+        bool  klipper_helper_present = false;   // Klipper [dragonbreath] helper seen
+                                                // on Moonraker -> AUTO defers to it
 
         if (s_net_up) {
             switch (s_src) {
@@ -306,6 +308,9 @@ static void control_task(void *arg)
                 if (s_mk_up) {
                     dc_moonraker_get_status(&st);
                     src_connected = (st.state == DC_MK_SUBSCRIBED);
+                    // The [dragonbreath] Klipper helper is itself a manual chamber
+                    // controller; when it's installed, AUTO must defer to it.
+                    klipper_helper_present = st.db_present;
                     bed_c = st.bed_temp;
                     bed_target_c = st.bed_target;
                     // Filament chamber zone, same as Bambu: while a print is active
@@ -326,6 +331,7 @@ static void control_task(void *arg)
             src_target_c,
             chamber_src_c
         );
+        pb_policy_set_klipper_helper(klipper_helper_present);
         // Home Assistant: pump the client whenever it's up — full-control when HA is
         // the selected source, or read-only when it runs alongside another source
         // (Bambu/Klipper) as a monitor. pb_ha_tick() no-ops until connected.

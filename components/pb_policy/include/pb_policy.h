@@ -93,6 +93,10 @@ typedef struct {
     float bed_target_c;   // commanded printer bed setpoint (AUTO/filter trigger)
     bool auto_engaged;
     bool auto_filtering;          // AUTO fan-only band active (blower on, no heat)
+    bool klipper_helper_present;  // the Klipper [dragonbreath] helper is installed on
+                                  // Moonraker (an active controller) — regardless of mode
+    bool auto_blocked_by_helper;  // AUTO is armed but held off because the Klipper
+                                  // [dragonbreath] helper is the active controller
     float auto_bed_threshold_c;
     pb_policy_params_t params;
 
@@ -196,6 +200,15 @@ void pb_policy_set_env(
     float src_target_c,
     float chamber_src_c
 );
+
+// Report whether the Klipper `[dragonbreath]` helper is present on the printer's
+// Moonraker (dc_moonraker's db_present). The helper is itself a manual chamber
+// controller, so when it is installed AUTO must not also drive the heater — two
+// controllers cannot own the target. While present, AUTO stays armed but never
+// engages (surfaced as auto_blocked_by_helper), and the helper's commands own the
+// chamber. Observer input only: never creates/refreshes a lease or changes mode.
+// Pass false for every non-Klipper source (no helper concept applies).
+void pb_policy_set_klipper_helper(bool present);
 
 // Refresh exactly the active lease.  A stale/superseded lease cannot keep heat
 // alive.

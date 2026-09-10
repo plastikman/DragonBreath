@@ -19,6 +19,27 @@ clients do not run at all — and vice-versa. In particular, **Home Assistant is
 full-control only while it is the selected source.** When a printer (Klipper or
 Bambu) is bound, HA is not connected — there is no background HA link.
 
+### Klipper AUTO vs. the `dragonbreath-klipper` helper
+
+Within the Klipper source the chamber can be driven two ways, and — by the same
+one-owner rule — they must not both run:
+
+- **AUTO** — DragonBreath follows the active print itself, over its own Moonraker
+  connection.
+- **The `dragonbreath-klipper` helper** — a Klipper module (`[dragonbreath]`) that
+  commands the heater from `M141` / `M191` / `SET_HEATER_TEMPERATURE`. Installing its
+  active configuration is itself choosing a manual controller (it even sends a
+  safety OFF on connect, which used to silently disarm AUTO).
+
+You no longer have to remember to turn one off. DragonBreath detects the helper on
+Moonraker (its `[dragonbreath]` object) and **AUTO automatically defers to it**: AUTO
+stays armed but does not drive the heater while the helper is installed (the dashboard
+shows *"AUTO paused — Klipper helper is active"*). Remove the helper's active
+`[dragonbreath]` configuration and AUTO resumes on the next tick. In short:
+
+- **Want AUTO?** Don't install (or disable) the `dragonbreath-klipper` helper.
+- **Want slicer / start-macro control?** Install the helper — AUTO steps aside on its own.
+
 ## Switching sources — and why there's an Unbind
 
 Because only one source owns the heater, moving control from a printer to Home
