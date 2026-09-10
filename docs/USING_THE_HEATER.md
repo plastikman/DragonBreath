@@ -66,9 +66,11 @@ slicer directly controlling the heater.
    DragonBreath always boots OFF, so AUTO must be armed again after a reboot.
 4. Disable the active `dragonbreath-klipper`/PAXX chamber-heater integration. The
    device's own Moonraker control source remains enabled and supplies AUTO data.
-5. In Orca, disable automatic chamber-temperature control so it does not emit
-   `M191` at the start or `M141` at the end. Verify the generated G-code contains
-   neither command.
+5. In each Orca filament preset, leave the chamber temperature set but clear
+   **Activate temperature control** so Orca does not emit `M191` at the start or
+   `M141` at the end. Leave the printer's **Support controlling chamber
+   temperature** option enabled. Verify the generated G-code contains neither
+   command.
 
 During an active print, DragonBreath reads the loaded material from Moonraker
 and applies its matching filament-zone target. With no active print, no material,
@@ -86,9 +88,10 @@ heating without waiting; `M191` starts it and blocks until the target is reached
 
 Do not use Orca's automatically injected `M191` if you want the bed and chamber
 to warm together. It runs before Machine start G-code, so adding an earlier bed
-command *inside* Machine start G-code cannot get ahead of it. Disable Orca's
-automatic chamber commands and verify the generated file no longer begins with
-`M191`.
+command *inside* Machine start G-code cannot get ahead of it. Leave the printer's
+**Support controlling chamber temperature** option enabled, but clear the
+filament preset's **Activate temperature control** checkbox. Then verify the
+generated file no longer begins with `M191`.
 
 ### Snapmaker U1 / PAXX Orca profile
 
@@ -98,19 +101,15 @@ do not type backslashes before them.
 #### 1. Stop Orca from inserting its own early `M191`
 
 1. Open the **Filament settings** for each heated-chamber material.
-2. Under **Temperature → Print chamber temperature**, enable **Activate
-   temperature control**, set the desired chamber temperature, and save the
-   filament preset.
-3. Open **Printer settings**.
-4. Switch Orca to **Advanced** mode if the next option is hidden.
-5. Open **Basic information → Accessory**.
-6. Clear **Support controlling chamber temperature**.
-7. Save the printer preset.
+2. Under **Temperature → Print chamber temperature**, set the desired chamber
+   temperature but leave **Activate temperature control unchecked**.
+3. Save the filament preset.
 
-Keep the desired chamber temperature in the filament preset. The Machine start
-G-code below reads it through Orca's `overall_chamber_temperature` placeholder.
-Turning off printer-level support prevents Orca from automatically placing a
-blocking `M191` ahead of Machine start G-code.
+This distinction matters: the temperature value remains available to Machine
+start G-code through Orca's `overall_chamber_temperature` placeholder, while the
+unchecked **Activate temperature control** option prevents Orca from automatically
+placing a blocking `M191` ahead of Machine start G-code. The printer preset's
+**Support controlling chamber temperature** option must remain enabled.
 
 #### 2. Start the chamber beside the bed
 
@@ -196,7 +195,8 @@ four of these before printing:
 If Orca reports `overall_chamber_temperature` as an unknown placeholder, use
 `{chamber_temperature[0]}` in both added lines instead. Do not use different
 placeholders for the start and wait commands. If either command renders as `S0`,
-return to the filament preset and set/activate its chamber temperature.
+return to the filament preset and set a non-zero chamber temperature—but keep
+**Activate temperature control unchecked**.
 
 ### Other Klipper profiles
 
