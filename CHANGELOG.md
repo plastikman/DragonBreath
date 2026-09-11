@@ -7,6 +7,24 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [1.1.18] - 2026-09-11
+
+### Changed
+- Hide the filament-zone settings (**Filament Zones** and **Custom Profiles**)
+  while the Klipper `[dragonbreath]` helper is active. Like AUTO, those settings
+  only feed the device's own AUTO mode, so they are inert when the helper owns
+  chamber heat — the dashboard now hides them alongside AUTO. Via **dragon-core
+  v0.34.2** (dc_ui).
+
+## [1.1.17] - 2026-09-11
+
+### Changed
+- AUTO now defers to the Klipper `[dragonbreath]` helper. When the helper is
+  installed it owns chamber heat directly (`M141`/`M191`), so AUTO stays armed but
+  does not drive the heater (surfaced as `environment.auto_blocked_by_helper`) and
+  resumes automatically once the helper is removed — no more silent tug-of-war
+  between the two controllers. Requires **dragon-core v0.34.1**.
+
 ### Documentation
 - Added a task-focused chamber-heater guide explaining that a new heater requires
   printer/slicer workflow integration rather than "just working." It makes AUTO
@@ -21,11 +39,25 @@ below into the GitHub Release notes.
 - Updated stale feature, control-source, API, and OEM-parity descriptions for the
   current filament-follow AUTO behavior and the PrusaLink bed-follow exception.
 
+## [1.1.16] - 2026-09-09
+
 ### Added
+- Port chamber heat control to a real PID (**dc_pid**) with a hardware-validated
+  response, replacing the previous bang-bang control; includes approach-cap
+  saturation handling and PID-demand normalization across approach caps.
 - Expose product-owned heater control telemetry in API v2 state snapshots:
   commanded SSR-window duty, the active PID approach limit, and the dominant
   controller or thermal constraint. This is read-only observability and does
   not change heater control or safety behavior.
+- Broadcast heater capability over ESP-NOW as a `dc_peer` provider (#94), so peers
+  such as DragonVent can see the chamber heater on the local ESP-NOW fabric.
+
+### Fixed
+- Reject duplicate zero-cross edges in the fan zero-cross detection path.
+
+### Documentation
+- RFCs proposing the Dragon device integration planes and grounding the ESP-NOW
+  fabric in the existing prototype.
 
 ## [1.1.15] - 2026-09-01
 
