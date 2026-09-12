@@ -115,10 +115,10 @@ jobs:
       # there is no committed lock to drift. The ESP-IDF build step re-solves and
       # validates the managed-component dependencies against the pinned manifests
       # (components/*/idf_component.yml) on every run, which is the validation.
-      - name: Build (ESP-IDF v5.3)
+      - name: Build (ESP-IDF v5.3.5)
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
         with:
-          esp_idf_version: v5.3
+          esp_idf_version: v5.3.5
           target: esp32c3
           path: '.'
 
@@ -126,10 +126,10 @@ jobs:
         run: |
           sh tests/check_api_v2_contract.sh
 
-      - name: Build safe dev-board HIL profile (ESP-IDF v5.3)
+      - name: Build safe dev-board HIL profile (ESP-IDF v5.3.5)
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
         with:
-          esp_idf_version: v5.3
+          esp_idf_version: v5.3.5
           target: esp32c3
           path: '.'
           command: |
@@ -145,10 +145,10 @@ jobs:
               build
             sh tests/check_hil_compileout.sh build-hil-devboard-uart
 
-      - name: Build native-USB production-network debug profile (ESP-IDF v5.3)
+      - name: Build native-USB production-network debug profile (ESP-IDF v5.3.5)
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
         with:
-          esp_idf_version: v5.3
+          esp_idf_version: v5.3.5
           target: esp32c3
           path: '.'
           command: |
