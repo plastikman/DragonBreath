@@ -5,6 +5,9 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 httpd="$root/components/pb_httpd/pb_httpd.c"
 adapter="$root/components/db_portal/db_portal.c"
 core_portal="$root/managed_components/dc_portal/dc_portal.c"
+diagnostics="$root/components/db_portal/www/diagnostics.html"
+consequential_toggle="$root/components/db_portal/www/consequential-toggle.js"
+control_diagnostics="$root/components/db_portal/www/control-diagnostics.js"
 # The dashboard/control UI is supplied by the pinned dragon-core dc_ui component.
 portal="${DC_UI_HTML:-}"
 if [ -z "$portal" ]; then
@@ -99,6 +102,33 @@ for field in printer_chamber_temperature_c printer_chamber_age_ms; do
     }
 done
 
+# Controller-agnostic HMI contract: the product publishes the process variable,
+# normalized request/allowed output and one derived constraint. The sparse /diag
+# page consumes those fields rather than exposing raw controller internals.
+for field in controller preferred_source effective_source process_variable_c controller_request allowed_output constraint; do
+    grep -q "\"$field\"" "$httpd" || {
+        echo "state document is missing control.loop.$field" >&2
+        exit 1
+    }
+done
+for field in control-source target request allowed delivered constraint safety; do
+    grep -q "id=\"$field\"" "$diagnostics" || {
+        echo "diagnostics instrument panel is missing $field" >&2
+        exit 1
+    }
+done
+grep -q 'DBConsequentialToggle.mount' "$diagnostics"
+grep -q "'/settings?filter_auto='" "$diagnostics"
+grep -q 'serverState' "$consequential_toggle"
+grep -q 'input.checked = authoritative.value' "$consequential_toggle"
+grep -q "dialog.addEventListener('cancel'" "$consequential_toggle"
+grep -q 'document.activeElement !== confirm' "$consequential_toggle"
+grep -q '"/ui/consequential-toggle.js"' "$adapter"
+grep -q '"/ui/control-diagnostics.js"' "$adapter"
+grep -q 'DBControlDiagnostics.view' "$diagnostics"
+grep -q 'DBControlDiagnostics.connect' "$diagnostics"
+grep -q "value === 'pid'" "$control_diagnostics"
+
 # Product-owned heater diagnostics must make the PID command, approach policy,
 # and dominant constraint observable without moving actuator policy into core.
 for field in commanded_duty approach_limit constraint; do
@@ -107,6 +137,10 @@ for field in commanded_duty approach_limit constraint; do
         exit 1
     }
 done
+grep -q 'heater_telemetry.requested_duty' "$httpd" || {
+    echo "control.loop.controller_request is not sourced from heater telemetry" >&2
+    exit 1
+}
 
 # Ownership boundary: core owns HTTP/provisioning/recovery; the product adapter
 # supplies API registration, authorization, heater safety and image identity.

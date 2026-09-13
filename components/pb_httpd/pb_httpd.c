@@ -233,6 +233,22 @@ static cJSON *state_json(const pb_policy_snapshot_t *s)
         cJSON_AddNumberToObject(lease, "expires_in_ms", 0);
     }
 
+    cJSON *loop = cJSON_AddObjectToObject(control, "loop");
+    cJSON_AddStringToObject(loop, "controller", "pid");
+    cJSON_AddStringToObject(loop, "preferred_source",
+                            heater_telemetry.preferred_external ? "bambu" : "local_ntc");
+    cJSON_AddStringToObject(loop, "effective_source",
+        !heater_telemetry.process_variable_valid ? "unavailable" :
+        heater_telemetry.effective_external ? "bambu" : "local_ntc");
+    if (heater_telemetry.process_variable_valid)
+        add_num1(loop, "process_variable_c", heater_telemetry.process_variable_c);
+    else
+        cJSON_AddNullToObject(loop, "process_variable_c");
+    add_num3(loop, "controller_request", heater_telemetry.requested_duty);
+    add_num3(loop, "allowed_output", heater_telemetry.commanded_duty);
+    cJSON_AddStringToObject(loop, "constraint",
+                            pb_heater_constraint_str(heater_telemetry.constraint));
+
     // Remembered mode parameters: what a mode is re-armed with when the caller
     // supplies no values of its own (front-panel buttons), and what the UI
     // pre-fills from. These persist across reboot; active state never does.

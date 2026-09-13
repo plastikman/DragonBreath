@@ -2,6 +2,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <math.h>
 
@@ -75,11 +76,15 @@ static inline float pb_heater_pid_approach_max_duty(float error_c)
 // safety governors cannot hide accumulating demand behind an inhibited heater.
 // DragonBreath's heater-only policy commands zero at/above target without
 // discarding valid controller history.
-static inline bool pb_heater_pid_step(pb_heater_pid_state_t *state,
-                                      float target_c, float measurement_c,
-                                      bool integrate, float *duty)
+static inline bool pb_heater_pid_step_with_request(pb_heater_pid_state_t *state,
+                                                   float target_c,
+                                                   float measurement_c,
+                                                   bool integrate,
+                                                   float *duty,
+                                                   float *requested_duty)
 {
     if (duty) *duty = 0.0f;
+    if (requested_duty) *requested_duty = 0.0f;
     if (!state || !duty) return false;
 
     const float error_c = target_c - measurement_c;
@@ -114,11 +119,29 @@ static inline bool pb_heater_pid_step(pb_heater_pid_state_t *state,
                      PB_HEATER_PID_DT_S, integrate, &result))
         return false;
 
+    // dc_pid exposes the exact terms used for its pre-clamp output. Recombine
+    // those authoritative results once for diagnostics; do not run a shadow
+    // controller or feed this value back into the actuator path.
+    if (requested_duty) {
+        float request = result.p + result.i + result.d;
+        if (request < 0.0f) request = 0.0f;
+        if (request > 1.0f) request = 1.0f;
+        *requested_duty = request;
+    }
+
     if (measurement_c >= target_c)
         return true;
 
     *duty = result.output;
     return true;
+}
+
+static inline bool pb_heater_pid_step(pb_heater_pid_state_t *state,
+                                      float target_c, float measurement_c,
+                                      bool integrate, float *duty)
+{
+    return pb_heater_pid_step_with_request(state, target_c, measurement_c,
+                                           integrate, duty, NULL);
 }
 
 // Convert normalized duty into zero-cross-SSR time proportioning. `now_us`

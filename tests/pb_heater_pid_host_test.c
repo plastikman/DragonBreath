@@ -63,6 +63,29 @@ static void test_approach_and_ssr_window(void)
     CHECK(!pb_heater_pid_window_on(&state, 0.0f, start + 10000001));
 }
 
+static void test_controller_request_precedes_approach_limit(void)
+{
+    pb_heater_pid_state_t state = {0};
+    float duty = 0.0f;
+    float request = 0.0f;
+
+    // Fill the stored demand permitted inside the 40% approach band.
+    for (int i = 0; i < 4000; ++i)
+        CHECK(pb_heater_pid_step_with_request(
+            &state, 60.0f, 59.0f, true, &duty, &request));
+    CHECK(duty <= 0.400001f);
+
+    // A cooling measurement produces a positive derivative contribution. The
+    // exact dc_pid P+I+D request can then exceed the active 40% ceiling, while
+    // the actuator-facing result remains capped. This is the distinction the
+    // read-only control.loop telemetry reports.
+    CHECK(pb_heater_pid_step_with_request(
+        &state, 60.0f, 58.1f, true, &duty, &request));
+    CHECK(request > duty);
+    CHECK_NEAR(duty, 0.40f, 0.000001f);
+    CHECK(request <= 1.0f);
+}
+
 static void test_approach_caps_prevent_integral_windup(void)
 {
     pb_heater_pid_state_t state = {0};
@@ -231,6 +254,7 @@ int main(void)
     test_known_gains_and_heater_policy();
     test_process_variable_selection();
     test_approach_and_ssr_window();
+    test_controller_request_precedes_approach_limit();
     test_approach_caps_prevent_integral_windup();
     test_approach_cap_contraction_normalizes_stored_demand();
     test_safety_inhibition_holds_integral();

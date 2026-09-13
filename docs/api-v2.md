@@ -99,6 +99,15 @@ The complete snapshot, not locally remembered intent, is the source of truth:
     "filter_auto_enable": true
   },
   "control": {
+    "loop": {
+      "controller": "pid",
+      "preferred_source": "local_ntc",
+      "effective_source": "local_ntc",
+      "process_variable_c": 44.8,
+      "controller_request": 0.700,
+      "allowed_output": 0.700,
+      "constraint": "approach_limit"
+    },
     "lease": {
       "active": true,
       "owner": "u1-klippy",
@@ -119,7 +128,18 @@ not phase-angle modulation; `heater.output` remains the instantaneous on/off SSR
 command. `heater.approach_limit` reports the product-owned duty ceiling selected
 for the current control error. `heater.constraint` is one of `off`, `none`,
 `approach_limit`, `target_reached`, `local_foldback`, `element_foldback`,
-`pid_error`, or `unknown`.
+`pid_error`, `safety_inhibited`, or `unknown`.
+
+`control.loop` is a read-only explanation of the latest active control tick.
+`controller` identifies the controller implementation. `preferred_source`
+reports the persisted chamber-source preference, while `effective_source` and
+`process_variable_c` report the source and temperature actually supplied to
+`dc_pid`; they are `unavailable`/`null` while the controller is not running.
+`controller_request` is the normalized PID P+I+D request before the active
+approach ceiling and local thermal governors. `allowed_output` is the request
+after those limits and is therefore identical to
+`heater.commanded_duty`. `heater.output` remains the instantaneous SSR state.
+All fields are observational and have no effect on control or safety decisions.
 
 Temperatures are JSON `null` when their sensor status is not `ok`. Public
 state and SSE snapshots intentionally omit the raw lease ID; only the
@@ -147,7 +167,7 @@ cutoff.
 (residual-heat cooldown purge), `auto_filter` (the fan-only filtration band),
 `requested` (the manual filtration fan), or `fault` (safety airflow).
 `environment.auto_filtering` is `true` while the fan-only filtration band is driving
-the blower — whenever `filter_auto` is enabled, Moonraker is connected, and the bed
+the blower — whenever `filter_auto` is enabled, the selected printer source is connected, and the bed
 **setpoint** is at/above `filter_temp_c`. This is a **standing** band, independent of
 mode (it runs even while idle). AUTO heat engagement is separate: filament-aware
 sources use the active filament-zone target, while bed-follow sources use their

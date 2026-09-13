@@ -44,10 +44,23 @@ typedef enum {
     PB_HEATER_CONSTRAINT_LOCAL_FOLDBACK,
     PB_HEATER_CONSTRAINT_ELEMENT_FOLDBACK,
     PB_HEATER_CONSTRAINT_PID_ERROR,
+    PB_HEATER_CONSTRAINT_SAFETY_INHIBITED,
 } pb_heater_constraint_t;
 
 typedef struct {
+    // Persisted preference is observational only; eligibility and source
+    // selection remain product-owned by app_main/pb_policy.
+    bool preferred_external;
+    // Source and process variable actually supplied to dc_pid on the latest
+    // active control tick. Invalid while the controller is not running.
+    bool effective_external;
+    bool process_variable_valid;
+    float process_variable_c;
+    // PID P+I+D request before the active approach ceiling and downstream
+    // thermal governors, normalized to the physical 0..1 actuator range.
+    float requested_duty;
     // PID output after DragonBreath's active approach limit (normalized 0..1).
+    // This is the request admitted to the SSR window after thermal governors.
     float commanded_duty;
     // Product-owned maximum duty for the current temperature error (0..1).
     float approach_limit;
@@ -246,6 +259,10 @@ const char *pb_heater_constraint_str(pb_heater_constraint_t constraint);
 // remain authoritative for over-temperature trips, sensor-fault detection, and
 // all other safety decisions regardless of this value.
 void pb_heater_set_control_chamber_c(float temp_c);
+
+// Mirror the separately persisted Bambu preference into diagnostics. Eligibility
+// and source selection remain entirely product-owned by app_main/pb_policy.
+void pb_heater_set_external_preference(bool enabled);
 
 // --- Runtime-configurable, persisted settings (pb_heater is the sole owner) ---
 // Load persisted settings from NVS (namespace app_nvs). MUST be called AFTER
