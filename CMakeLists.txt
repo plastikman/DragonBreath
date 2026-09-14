@@ -35,6 +35,21 @@ message(STATUS "DragonBreath version: ${PROJECT_VER}")
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(dragonbreath)
 
+# ESP-IDF 5.3.1's HTTP server can process and recycle a socket while an
+# asynchronous request worker still owns it. DragonBreath's SSE endpoint uses
+# that API, so require Espressif's 8b559ce61454 fix, first released in
+# ESP-IDF 5.3.2.
+idf_build_get_property(DB_IDF_VERSION IDF_VER)
+if(NOT DB_IDF_VERSION MATCHES "^v?([0-9]+\\.[0-9]+\\.[0-9]+)")
+    message(FATAL_ERROR "Cannot determine ESP-IDF version from '${DB_IDF_VERSION}'")
+endif()
+set(DB_IDF_SEMVER "${CMAKE_MATCH_1}")
+if(DB_IDF_SEMVER VERSION_LESS "5.3.2")
+    message(FATAL_ERROR
+        "DragonBreath requires ESP-IDF v5.3.2 or newer: older releases can "
+        "concurrently process sockets owned by asynchronous HTTP requests")
+endif()
+
 # E1 (Phase E) — warnings-as-errors for OUR OWN first-party components only.
 # Applied here (after project(), when the per-component library targets exist) as a
 # PRIVATE option so it never leaks to ESP-IDF's own components or to dependents.
