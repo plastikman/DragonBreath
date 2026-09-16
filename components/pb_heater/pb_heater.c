@@ -668,7 +668,10 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
         duty = 0.0f;
     }
 
-    float approach_limit = pb_heater_pid_approach_max_duty(target - regulation_c);
+    // The soft approach cap actually applied this step (rate-gated inside the PID
+    // step); 1.0 means unshaped. Reported so diagnostics can distinguish anti-
+    // overshoot damping from element/local foldback.
+    float approach_limit = s_pid.last_approach_cap;
     pb_heater_constraint_t constraint = PB_HEATER_CONSTRAINT_NONE;
     if (!pid_ok)
         constraint = PB_HEATER_CONSTRAINT_PID_ERROR;
