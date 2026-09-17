@@ -135,6 +135,9 @@ static void brand_ap(void)
 
 static esp_err_t configure_core_identity(void)
 {
+    // "dragonbreath" is the DEFAULT hostname; dc_wifi applies a user override
+    // persisted via dc_wifi_set_hostname() (the portal Device section) over it
+    // at start, so no per-product hostname glue is needed here.
     const dc_wifi_identity_t identity = {
         .hostname = "dragonbreath",
         .instance_name = "DragonBreath",
