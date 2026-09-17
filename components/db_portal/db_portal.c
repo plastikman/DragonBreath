@@ -16,6 +16,7 @@
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "nvs.h"
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +25,8 @@ static const char *TAG = "db_portal";
 
 #define DB_NVS_NAMESPACE "app_nvs"
 #define DB_NVS_KEY_BAMBU_CHAMBER_CTL "bb_ch_ctl"
+#define DB_NVS_KEY_HOSTNAME "hostname"
+#define DB_DEFAULT_HOSTNAME "dragonbreath"
 
 static bool bambu_direct_chamber_control_get(void)
 {
@@ -45,6 +48,43 @@ static esp_err_t bambu_direct_chamber_control_set(bool enabled)
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;
+}
+
+static void hostname_get(char *out, size_t out_size)
+{
+    nvs_handle_t h;
+    if (nvs_open(DB_NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
+        size_t sz = out_size;
+        esp_err_t err = nvs_get_str(h, DB_NVS_KEY_HOSTNAME, out, &sz);
+        nvs_close(h);
+        if (err == ESP_OK && out[0]) return;
+    }
+    snprintf(out, out_size, "%s", DB_DEFAULT_HOSTNAME);
+}
+
+static esp_err_t hostname_set(const char *value)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(DB_NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_str(h, DB_NVS_KEY_HOSTNAME, value);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+// DNS-safe: 1-32 chars, [A-Za-z0-9-], no leading/trailing hyphen (RFC 1123 label).
+// dc_wifi_set_identity() only checks non-empty + length, so this is what actually
+// keeps a bad value from breaking DHCP/mDNS resolution on the LAN.
+static bool hostname_valid(const char *s)
+{
+    size_t len = strlen(s);
+    if (len == 0 || len > 32) return false;
+    if (s[0] == '-' || s[len - 1] == '-') return false;
+    for (size_t i = 0; i < len; i++) {
+        if (!isalnum((unsigned char)s[i]) && s[i] != '-') return false;
+    }
+    return true;
 }
 
 // A zero-length chunk terminates an ESP-IDF chunked response, so skip empty text.
@@ -260,7 +300,14 @@ static cJSON *describe_product(void *ctx)
     cJSON *root = cJSON_CreateObject();
     cJSON_AddItemToObject(root, "sections", cJSON_CreateArray());
 
-    cJSON *s = section(root, "Control source");
+    cJSON *s = section(root, "Device");
+    cJSON_AddStringToObject(s, "description",
+        "Network hostname used for DHCP and mDNS (<hostname>.local). Changing this requires a restart.");
+    char hostname[33];
+    hostname_get(hostname, sizeof hostname);
+    add_field(s, field("hostname", "Hostname", "text", hostname, false));
+
+    s = section(root, "Control source");
     char selected_source[4];
     snprintf(selected_source, sizeof selected_source, "%d", dc_source_get());
     cJSON *src = field("ctl_src", "Source", "select", selected_source, false);
@@ -518,6 +565,18 @@ static esp_err_t apply_product(const cJSON *values, void *ctx, char *message, si
         bb_chamber_ctl.present &&
         bb_chamber_ctl.value != bambu_direct_chamber_control_get();
 
+    db_portal_text_value_t hostname_req = {0};
+    err = parse_text_field(values, "hostname", &hostname_req, message, message_size);
+    if (err != ESP_OK) return err;
+    char current_hostname[33];
+    hostname_get(current_hostname, sizeof current_hostname);
+    bool hostname_changed = false;
+    if (hostname_req.present) {
+        if (!hostname_req.value || !hostname_valid(hostname_req.value))
+            return request_error("hostname", message, message_size);
+        hostname_changed = strcmp(current_hostname, hostname_req.value) != 0;
+    }
+
     db_portal_product_plan_t plan;
     err = db_portal_plan_product_save(&request, dc_source_get(), &mr, &bb, &ha, &km, &pr,
                                       &plan, message, message_size);
@@ -548,6 +607,10 @@ static esp_err_t apply_product(const cJSON *values, void *ctx, char *message, si
         if (err != ESP_OK)
             return persistence_error("Bambu chamber control", err, message, message_size);
     }
+    if (hostname_changed) {
+        err = hostname_set(hostname_req.value);
+        if (err != ESP_OK) return persistence_error("hostname", err, message, message_size);
+    }
     // Source is deliberately last: an invalid or failed config save can never bind
     // a different controller. Selecting None changes only this enum; credentials stay.
     if (plan.source_changed) {
@@ -557,9 +620,9 @@ static esp_err_t apply_product(const cJSON *values, void *ctx, char *message, si
 
     bool changed = plan.moonraker_changed || plan.bambu_changed || plan.ha_changed ||
                    plan.klipper_mqtt_changed || plan.prusa_changed ||
-                   plan.source_changed || bb_chamber_ctl_changed;
+                   plan.source_changed || bb_chamber_ctl_changed || hostname_changed;
     snprintf(message, message_size, changed
-             ? "Configuration saved; restart to apply source/control changes."
+             ? "Configuration saved; restart to apply source/control/network changes."
              : "Configuration already up to date.");
     return ESP_OK;
 }

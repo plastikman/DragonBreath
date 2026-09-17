@@ -7,6 +7,11 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+- Configurable device hostname (web portal **Device** section), used for DHCP
+  and mDNS. Defaults to `dragonbreath`, letting multiple devices coexist on
+  the same network without a hostname conflict. Takes effect after a restart.
+
 ## [1.1.18] - 2026-09-11
 
 ### Changed
