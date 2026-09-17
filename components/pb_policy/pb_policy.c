@@ -950,7 +950,16 @@ void pb_policy_tick(void)
         case PB_MODE_POWER_ON:
             if (s.lease_active && now >= s.lease_deadline_us) {
                 watchdog_trip = true;
-                watchdog_reason = "controller lease expired";
+                // The remote controller stopped heartbeating within the comms
+                // deadman, so fail safe. Name the likely cause per source: a web
+                // (dashboard) controller heartbeats from the page, which the browser
+                // throttles/stops when the tab is backgrounded or closed — the most
+                // common reason a manual web session "drops off." s.source still
+                // holds the controlling source here; the trip overwrites it to
+                // WATCHDOG afterward.
+                watchdog_reason = (s.source == DB_SOURCE_WEB)
+                    ? "Web controller lease expired - browser tab may be backgrounded"
+                    : "controller lease expired";
             } else if (!s.lease_active && s.local_power_deadline_us > 0
                        && now >= s.local_power_deadline_us) {
                 local_limit_expired = true;
