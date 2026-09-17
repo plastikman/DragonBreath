@@ -9,8 +9,11 @@ below into the GitHub Release notes.
 
 ### Added
 - Configurable device hostname (web portal **Device** section), used for DHCP
-  and mDNS. Defaults to `dragonbreath`, letting multiple devices coexist on
-  the same network without a hostname conflict. Takes effect after a restart.
+  and mDNS (`<hostname>.local`). Defaults to `dragonbreath`, letting multiple
+  devices coexist on the same network without a hostname conflict. Takes effect
+  after a restart. The hostname (and its RFC 1123 validation) is owned by
+  **dragon-core v0.35.0** (`dc_wifi`), so it is family-wide rather than
+  DragonBreath-specific.
 
 ## [1.1.18] - 2026-09-11
 

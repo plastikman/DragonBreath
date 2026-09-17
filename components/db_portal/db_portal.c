@@ -8,6 +8,7 @@
 #include "dc_moonraker.h"
 #include "dc_portal.h"
 #include "dc_source.h"
+#include "dc_wifi.h"
 #include "pb_ha.h"
 #include "pb_httpd.h"
 #include "pb_policy.h"
@@ -16,7 +17,6 @@
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "nvs.h"
-#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,8 +25,6 @@ static const char *TAG = "db_portal";
 
 #define DB_NVS_NAMESPACE "app_nvs"
 #define DB_NVS_KEY_BAMBU_CHAMBER_CTL "bb_ch_ctl"
-#define DB_NVS_KEY_HOSTNAME "hostname"
-#define DB_DEFAULT_HOSTNAME "dragonbreath"
 
 static bool bambu_direct_chamber_control_get(void)
 {
@@ -48,43 +46,6 @@ static esp_err_t bambu_direct_chamber_control_set(bool enabled)
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;
-}
-
-static void hostname_get(char *out, size_t out_size)
-{
-    nvs_handle_t h;
-    if (nvs_open(DB_NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
-        size_t sz = out_size;
-        esp_err_t err = nvs_get_str(h, DB_NVS_KEY_HOSTNAME, out, &sz);
-        nvs_close(h);
-        if (err == ESP_OK && out[0]) return;
-    }
-    snprintf(out, out_size, "%s", DB_DEFAULT_HOSTNAME);
-}
-
-static esp_err_t hostname_set(const char *value)
-{
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(DB_NVS_NAMESPACE, NVS_READWRITE, &h);
-    if (err != ESP_OK) return err;
-    err = nvs_set_str(h, DB_NVS_KEY_HOSTNAME, value);
-    if (err == ESP_OK) err = nvs_commit(h);
-    nvs_close(h);
-    return err;
-}
-
-// DNS-safe: 1-32 chars, [A-Za-z0-9-], no leading/trailing hyphen (RFC 1123 label).
-// dc_wifi_set_identity() only checks non-empty + length, so this is what actually
-// keeps a bad value from breaking DHCP/mDNS resolution on the LAN.
-static bool hostname_valid(const char *s)
-{
-    size_t len = strlen(s);
-    if (len == 0 || len > 32) return false;
-    if (s[0] == '-' || s[len - 1] == '-') return false;
-    for (size_t i = 0; i < len; i++) {
-        if (!isalnum((unsigned char)s[i]) && s[i] != '-') return false;
-    }
-    return true;
 }
 
 // A zero-length chunk terminates an ESP-IDF chunked response, so skip empty text.
@@ -304,7 +265,7 @@ static cJSON *describe_product(void *ctx)
     cJSON_AddStringToObject(s, "description",
         "Network hostname used for DHCP and mDNS (<hostname>.local). Changing this requires a restart.");
     char hostname[33];
-    hostname_get(hostname, sizeof hostname);
+    dc_wifi_get_hostname(hostname, sizeof hostname);
     add_field(s, field("hostname", "Hostname", "text", hostname, false));
 
     s = section(root, "Control source");
@@ -569,10 +530,10 @@ static esp_err_t apply_product(const cJSON *values, void *ctx, char *message, si
     err = parse_text_field(values, "hostname", &hostname_req, message, message_size);
     if (err != ESP_OK) return err;
     char current_hostname[33];
-    hostname_get(current_hostname, sizeof current_hostname);
+    dc_wifi_get_hostname(current_hostname, sizeof current_hostname);
     bool hostname_changed = false;
     if (hostname_req.present) {
-        if (!hostname_req.value || !hostname_valid(hostname_req.value))
+        if (!hostname_req.value || !dc_wifi_hostname_valid(hostname_req.value))
             return request_error("hostname", message, message_size);
         hostname_changed = strcmp(current_hostname, hostname_req.value) != 0;
     }
@@ -608,7 +569,7 @@ static esp_err_t apply_product(const cJSON *values, void *ctx, char *message, si
             return persistence_error("Bambu chamber control", err, message, message_size);
     }
     if (hostname_changed) {
-        err = hostname_set(hostname_req.value);
+        err = dc_wifi_set_hostname(hostname_req.value);
         if (err != ESP_OK) return persistence_error("hostname", err, message, message_size);
     }
     // Source is deliberately last: an invalid or failed config save can never bind

@@ -133,26 +133,13 @@ static void brand_ap(void)
     ESP_LOGI(TAG, "AP SSID default set: %s", ssid);
 }
 
-// User-configurable via the web portal (NVS app_nvs/"hostname"); defaults to
-// "dragonbreath" for a fresh or unconfigured device.
-static void load_hostname(char *out, size_t out_size)
-{
-    nvs_handle_t h;
-    if (nvs_open("app_nvs", NVS_READONLY, &h) == ESP_OK) {
-        size_t sz = out_size;
-        esp_err_t err = nvs_get_str(h, "hostname", out, &sz);
-        nvs_close(h);
-        if (err == ESP_OK && out[0]) return;
-    }
-    snprintf(out, out_size, "dragonbreath");
-}
-
 static esp_err_t configure_core_identity(void)
 {
-    char hostname[33];
-    load_hostname(hostname, sizeof hostname);
+    // "dragonbreath" is the DEFAULT hostname; dc_wifi applies a user override
+    // persisted via dc_wifi_set_hostname() (the portal Device section) over it
+    // at start, so no per-product hostname glue is needed here.
     const dc_wifi_identity_t identity = {
-        .hostname = hostname,
+        .hostname = "dragonbreath",
         .instance_name = "DragonBreath",
         .ap_ssid_prefix = "DragonBreath_",
         .ap_password = DC_WIFI_DEFAULT_AP_PASSWORD,
