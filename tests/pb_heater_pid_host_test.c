@@ -63,6 +63,28 @@ static void test_approach_and_ssr_window(void)
     CHECK(!pb_heater_pid_window_on(&state, 0.0f, start + 10000001));
 }
 
+static void test_reported_pid_output_includes_approach_limit(void)
+{
+    pb_heater_pid_state_t state = {0};
+    float duty = 0.0f;
+
+    // Fill the stored demand permitted inside the 40% approach band.
+    for (int i = 0; i < 4000; ++i)
+        CHECK(pb_heater_pid_step(&state, 60.0f, 59.0f, true, &duty));
+    CHECK_NEAR(duty, 0.40f, 0.000001f);
+    CHECK_NEAR(state.controller.integral, 0.30f, 0.000001f);
+
+    // A cooling measurement produces a positive derivative contribution. The
+    // integral is already constrained by the approach band. Neither the stored
+    // terms nor a derivative transient represent limit-independent demand.
+    // Telemetry uses the same capped duty returned to the real actuator path.
+    CHECK(pb_heater_pid_step(&state, 60.0f, 58.1f, true, &duty));
+    CHECK_NEAR(duty, 0.40f, 0.000001f);
+    CHECK_NEAR(state.controller.integral, 0.21f, 0.000001f);
+    CHECK(pb_heater_pid_step(&state, 60.0f, 60.0f, true, &duty));
+    CHECK(duty == 0.0f);
+}
+
 static void test_approach_caps_prevent_integral_windup(void)
 {
     pb_heater_pid_state_t state = {0};
@@ -231,6 +253,7 @@ int main(void)
     test_known_gains_and_heater_policy();
     test_process_variable_selection();
     test_approach_and_ssr_window();
+    test_reported_pid_output_includes_approach_limit();
     test_approach_caps_prevent_integral_windup();
     test_approach_cap_contraction_normalizes_stored_demand();
     test_safety_inhibition_holds_integral();

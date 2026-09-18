@@ -7,7 +7,7 @@ out="${TMPDIR:-/tmp}/dragonbreath-pb-heater-pid-test"
 
 # Keep host coverage on the exact released dependency used by the firmware
 # manifest.
-dc_pid_version=v0.32.0
+dc_pid_version=v0.33.0
 base="https://raw.githubusercontent.com/justinh-rahb/dragon-core/$dc_pid_version/components/dc_pid"
 mkdir -p "$tmp/include"
 curl -fsSL "$base/include/dc_pid.h" -o "$tmp/include/dc_pid.h"

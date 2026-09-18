@@ -2,6 +2,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <math.h>
 
@@ -76,8 +77,10 @@ static inline float pb_heater_pid_approach_max_duty(float error_c)
 // DragonBreath's heater-only policy commands zero at/above target without
 // discarding valid controller history.
 static inline bool pb_heater_pid_step(pb_heater_pid_state_t *state,
-                                      float target_c, float measurement_c,
-                                      bool integrate, float *duty)
+                                      float target_c,
+                                      float measurement_c,
+                                      bool integrate,
+                                      float *duty)
 {
     if (duty) *duty = 0.0f;
     if (!state || !duty) return false;
