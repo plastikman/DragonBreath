@@ -15,6 +15,32 @@ below into the GitHub Release notes.
   **dragon-core v0.35.0** (`dc_wifi`), so it is family-wide rather than
   DragonBreath-specific.
 
+## [1.1.19-rc1]
+
+### Fixed
+- **Chamber can't hold setpoint (regression since v1.1.16).** The chamber
+  controller stalled ~2 °C below target ("gets to 64, can't reach 65"). The
+  approach cap limited SSR duty by *distance to target* (40% within 2 °C), which
+  clamped the steady-state hold — a stable attractor at `target − 2 °C` for any
+  enclosure whose hold duty exceeds the cap — and also throttled the element below
+  its safe capability, adding SSR switching wear. Replaced with a rate-gated soft
+  anti-overshoot that only damps a genuinely fast approach and never clamps a
+  settled hold; the element (PTC) foldback remains the real near-target limiter.
+  Bench-validated on an enclosed U1: chamber hold 62.9 °C → 64.3 °C (recovering
+  v1.1.15), matching the last-known-good firmware.
+
+### Changed
+- Cut steady-state SSR switching (~12/min → ~4/min) by widening the
+  time-proportioning window 10 s → 30 s and adding a 2 s minimum on/off dwell —
+  addressing solid-state-relay wear from the v1.1.16 duty modulation.
+- The gate that arms approach damping uses an EMA-filtered rise rate, so ~0.1 °C
+  NTC quantization steps no longer flicker the cap through the hold.
+
+> Release-candidate for testing. The fixed safety cutoffs (105 °C element /
+> 85 °C chamber / 70 °C target) are unchanged. On a lossy enclosure, raising the
+> existing **Foldback cut** advanced setting (default 102 °C) toward 103 °C gives
+> the element more headroom to reach a full setpoint.
+
 ## [1.1.18] - 2026-09-11
 
 ### Changed

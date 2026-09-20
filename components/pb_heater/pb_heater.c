@@ -51,9 +51,7 @@ static float       s_cool_release_c;    // guarded by s_mux — residual-heat pu
 static float       s_fb_cut_c;          // guarded by s_mux — user foldback-cut override (0 = auto/per-Rref)
 static uint8_t     s_method;            // guarded by s_mux — pb_heater_method_t (control method)
 static bool        s_heat_intent;       // control-task only — bang-bang chamber hysteresis latch
-
-// Bang-bang (v1.1.15) chamber hysteresis: heat below target-band, off at/above target.
-#define PB_HEATER_HYSTERESIS_C  1.0f
+                                        // (PB_HEATER_HYSTERESIS_C band, defined in pb_heater.h)
 
 // Persisted settings live in the shared app_nvs namespace (centi-°C / ms u32).
 #define NVS_NS             "app_nvs"
@@ -742,7 +740,10 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
         duty = 0.0f;
     }
 
-    float approach_limit = pb_heater_pid_approach_max_duty(target - regulation_c);
+    // The soft approach cap actually applied this step (rate-gated inside the PID
+    // step); 1.0 means unshaped. Reported so diagnostics can distinguish anti-
+    // overshoot damping from element/local foldback.
+    float approach_limit = s_pid.last_approach_cap;
     pb_heater_constraint_t constraint = PB_HEATER_CONSTRAINT_NONE;
     if (!pid_ok)
         constraint = PB_HEATER_CONSTRAINT_PID_ERROR;
