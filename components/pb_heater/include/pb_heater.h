@@ -54,6 +54,15 @@ typedef struct {
     pb_heater_constraint_t constraint;
 } pb_heater_telemetry_t;
 
+// Chamber-control method. BANGBANG is the v1.1.15 hysteresis on/off drive (the
+// default); PID is the v1.1.16 dc_pid path with the near-target approach cap.
+// Both keep every safety layer (over-temp/sensor/comms trips, local + element
+// foldback); only the duty decision differs. Selectable so both can be tested.
+typedef enum {
+    PB_HEATER_METHOD_BANGBANG = 0,   // v1.1.15 — default
+    PB_HEATER_METHOD_PID      = 1,   // v1.1.16 — opt-in
+} pb_heater_method_t;
+
 // Pure fail-safe decision for the boot-time fault restore (pb_heater_load_fault),
 // inline so it can be host-tested without an NVS backend. Given the outcome of
 // reading the persisted latch/code, decides whether to come up latched and with
@@ -278,6 +287,12 @@ float     pb_heater_get_cool_release_c(void);
 // stored value (0 = auto). The resume point always trails by one hysteresis band.
 esp_err_t pb_heater_set_fb_cut_c(float c);
 float     pb_heater_get_fb_cut_c(void);
+
+// Select the chamber-control method (persisted). Default is BANGBANG (v1.1.15);
+// PID (v1.1.16) is opt-in. A change takes effect on the next control tick and
+// resets the newly selected path's history so it starts clean.
+esp_err_t          pb_heater_set_method(pb_heater_method_t method);
+pb_heater_method_t pb_heater_get_method(void);
 
 // Feed the comms watchdog: call whenever a live controller link is confirmed
 // (Moonraker connected, or a fresh command). If not called within

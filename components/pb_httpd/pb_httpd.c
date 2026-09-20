@@ -152,6 +152,9 @@ static cJSON *state_json(const pb_policy_snapshot_t *s)
     cJSON_AddStringToObject(
         heater, "constraint",
         pb_heater_constraint_str(heater_telemetry.constraint));
+    cJSON_AddStringToObject(
+        heater, "method",
+        pb_heater_get_method() == PB_HEATER_METHOD_PID ? "pid" : "bangbang");
 
     cJSON *fan = cJSON_AddObjectToObject(o, "fan");
     cJSON_AddNumberToObject(fan, "requested_percent", s->requested_fan_percent);
@@ -1042,6 +1045,46 @@ static bool refuse_while_heating(httpd_req_t *req, const char *message)
     return false;
 }
 
+// --- Chamber control method GET/POST /api/v2/heater_method -----------------
+// Selects bang-bang (v1.1.15, the default) vs pid (v1.1.16). GET is read-only/open;
+// POST is auth-gated and applies live on the next control tick (no reboot). This is
+// deliberately a v2 route, not part of the legacy /settings surface.
+static esp_err_t heater_method_send(httpd_req_t *req)
+{
+    cJSON *o = cJSON_CreateObject();
+    if (!o) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
+    cJSON_AddNumberToObject(o, "api_version", API_VERSION);
+    cJSON_AddStringToObject(o, "method",
+        pb_heater_get_method() == PB_HEATER_METHOD_PID ? "pid" : "bangbang");
+    return send_json(req, o);
+}
+
+static esp_err_t heater_method_get(httpd_req_t *req) { return heater_method_send(req); }
+
+static esp_err_t heater_method_post(httpd_req_t *req)
+{
+    if (auth_reject(req)) return ESP_OK;
+    cJSON *root = recv_json(req);
+    if (!root)
+        return api_error(req, "400 Bad Request", "invalid_command", "invalid JSON body", NULL);
+    cJSON *m = cJSON_GetObjectItemCaseSensitive(root, "method");
+    pb_heater_method_t method;
+    if (cJSON_IsString(m) && strcmp(m->valuestring, "bangbang") == 0)
+        method = PB_HEATER_METHOD_BANGBANG;
+    else if (cJSON_IsString(m) && strcmp(m->valuestring, "pid") == 0)
+        method = PB_HEATER_METHOD_PID;
+    else {
+        cJSON_Delete(root);
+        return api_error(req, "400 Bad Request", "invalid_command",
+                         "method must be \"bangbang\" or \"pid\"", NULL);
+    }
+    cJSON_Delete(root);
+    if (pb_heater_set_method(method) != ESP_OK)
+        return api_error(req, "400 Bad Request", "invalid_command",
+                         "could not set method", NULL);
+    return heater_method_send(req);
+}
+
 // POST /api/v2/restart — auth-gated, refused while heating. Responds, then reboots
 // from a delayed task so the JSON flushes before the socket is torn down.
 static esp_err_t restart_post(httpd_req_t *req)
@@ -1263,6 +1306,8 @@ esp_err_t pb_httpd_register(httpd_handle_t server)
     httpd_uri_t calp   = { .uri = "/api/v2/calibration", .method = HTTP_POST, .handler = calibration_post };
     httpd_uri_t zong   = { .uri = "/api/v2/zones",       .method = HTTP_GET,  .handler = zones_get };
     httpd_uri_t zonp   = { .uri = "/api/v2/zones",       .method = HTTP_POST, .handler = zones_post };
+    httpd_uri_t hmg    = { .uri = "/api/v2/heater_method", .method = HTTP_GET,  .handler = heater_method_get };
+    httpd_uri_t hmp    = { .uri = "/api/v2/heater_method", .method = HTTP_POST, .handler = heater_method_post };
     httpd_register_uri_handler(s_server, &info);
     httpd_register_uri_handler(s_server, &state);
     httpd_register_uri_handler(s_server, &cmd);
@@ -1281,6 +1326,8 @@ esp_err_t pb_httpd_register(httpd_handle_t server)
     httpd_register_uri_handler(s_server, &calp);
     httpd_register_uri_handler(s_server, &zong);
     httpd_register_uri_handler(s_server, &zonp);
+    httpd_register_uri_handler(s_server, &hmg);
+    httpd_register_uri_handler(s_server, &hmp);
     ESP_LOGI(TAG, "HTTP API v2 registered (shared portal owns HTTP, provisioning and OTA)");
     return ESP_OK;
 }

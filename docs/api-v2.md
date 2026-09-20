@@ -64,7 +64,8 @@ The complete snapshot, not locally remembered intent, is the source of truth:
     "output": true,
     "commanded_duty": 0.700,
     "approach_limit": 0.700,
-    "constraint": "approach_limit"
+    "constraint": "approach_limit",
+    "method": "bangbang"
   },
   "fan": {
     "requested_percent": 100,
@@ -120,6 +121,22 @@ command. `heater.approach_limit` reports the product-owned duty ceiling selected
 for the current control error. `heater.constraint` is one of `off`, `none`,
 `approach_limit`, `target_reached`, `local_foldback`, `element_foldback`,
 `pid_error`, or `unknown`.
+
+`heater.method` is the active chamber-control method: `bangbang` (the v1.1.15
+hysteresis on/off drive, the **default**) or `pid` (the v1.1.16 dc_pid path with
+the near-target approach cap). Both retain every safety layer (over-temp/sensor/
+comms trips and the local + element foldback governors); only the duty decision
+differs. In bang-bang, `commanded_duty` is 1.0 or 0.0 and `approach_limit` is 1.0.
+
+Select it with `GET`/`POST /api/v2/heater_method`:
+
+```
+GET  /api/v2/heater_method   -> { "api_version": 2, "method": "bangbang" }
+POST /api/v2/heater_method   { "method": "pid" }      (auth-gated; applies live, no reboot)
+```
+
+`method` must be `"bangbang"` or `"pid"`; the choice is persisted in NVS. This is
+deliberately a v2 route rather than part of the legacy `/settings` surface.
 
 Temperatures are JSON `null` when their sensor status is not `ok`. Public
 state and SSE snapshots intentionally omit the raw lease ID; only the

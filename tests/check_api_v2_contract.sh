@@ -101,7 +101,7 @@ done
 
 # Product-owned heater diagnostics must make the PID command, approach policy,
 # and dominant constraint observable without moving actuator policy into core.
-for field in commanded_duty approach_limit constraint; do
+for field in commanded_duty approach_limit constraint method; do
     grep -q "\"$field\"" "$httpd" || {
         echo "state document is missing heater.$field" >&2
         exit 1
