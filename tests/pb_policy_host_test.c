@@ -337,6 +337,28 @@ static void test_lease_expiry_latches_watchdog_fault(void)
     CHECK(pb_policy_heartbeat(&lease) == PB_POLICY_STALE_LEASE);
 }
 
+// A web (dashboard) POWER_ON that stops heartbeating — e.g. the browser tab was
+// backgrounded or closed — latches off with a web-specific reason, so the UI can
+// explain the common cause instead of a bare "controller lease expired."
+static void test_web_lease_expiry_names_the_browser_tab(void)
+{
+    reset_fixture();
+    pb_policy_lease_t lease;
+    CHECK(pb_policy_set_power_on(
+        55.0f, DB_SOURCE_WEB, "web", 1, &lease) == PB_POLICY_OK);
+    pb_policy_tick();
+    CHECK(pb_heater_is_on());
+
+    fake_now_us += (int64_t)heater_comms_timeout_ms * 1000 + 1;
+    pb_policy_tick();
+    pb_policy_snapshot_t snap = snapshot();
+    CHECK(snap.mode == PB_MODE_OFF);
+    CHECK(snap.fault_latched);
+    CHECK(strcmp(snap.fault_reason,
+                 "Web controller lease expired - browser tab may be backgrounded") == 0);
+    CHECK(!snap.heater_output);
+}
+
 // AUTO now follows the active print's filament-profile target (src_target_c) and
 // ONLY while the source (Moonraker/Bambu) is connected — bed-threshold heating was
 // removed in "AUTO follows the filament profile" (PR #81). This pins the live-source
@@ -1286,6 +1308,7 @@ int main(void)
     test_remote_lease_and_stale_revision();
     test_new_command_supersedes_old_lease_and_off_is_unconditional();
     test_lease_expiry_latches_watchdog_fault();
+    test_web_lease_expiry_names_the_browser_tab();
     test_auto_requires_live_source();
     test_klipper_helper_suppresses_auto();
     test_auto_source_zone_overrides_bed_threshold();
