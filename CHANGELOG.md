@@ -7,7 +7,20 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [1.1.19-rc2]
+
 ### Added
+- **Selectable chamber-control method — Bang-Bang (default) vs PID/PTC
+  (experimental).** The v1.1.16 PID approach cap held SSR duty to 40 % within
+  2 °C of target, but the hardware needs ~60 % to hold, so it stalled ~2 °C low
+  (#95). Bang-Bang (the v1.1.15 on/off hysteresis) is now the default and holds
+  setpoint; PID/PTC stays selectable for A/B testing. Both keep every safety
+  layer (over-temp/sensor/comms trips, local + element foldback). Select it on
+  the **Settings** card (dragon-core v0.35.2 dc_ui) or via
+  `GET`/`POST /api/v2/heater_method`; `heater.method` is reported in
+  `/api/v2/state`. NVS-persisted, default Bang-Bang. Live-validated on hardware:
+  Bang-Bang held a 55 °C target at 54.7 °C mean / 92 % within ±1 °C over a 3.4 h
+  print, element peak 94.6 °C (10 °C under the 105 °C trip). Fixes #95.
 - Configurable device hostname (web portal **Device** section), used for DHCP
   and mDNS (`<hostname>.local`). Defaults to `dragonbreath`, letting multiple
   devices coexist on the same network without a hostname conflict. Takes effect
