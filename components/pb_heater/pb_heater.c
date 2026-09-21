@@ -49,6 +49,9 @@ static float       s_max_target_c;      // guarded by s_mux — settable set-poi
 static int64_t     s_comms_timeout_us;  // guarded by s_mux — comms deadman (microseconds)
 static float       s_cool_release_c;    // guarded by s_mux — residual-heat purge "cool down to" temp
 static float       s_fb_cut_c;          // guarded by s_mux — user foldback-cut override (0 = auto/per-Rref)
+static uint8_t     s_method;            // guarded by s_mux — pb_heater_method_t (control method)
+static bool        s_heat_intent;       // control-task only — bang-bang chamber hysteresis latch
+                                        // (PB_HEATER_HYSTERESIS_C band, defined in pb_heater.h)
 
 // Persisted settings live in the shared app_nvs namespace (centi-°C / ms u32).
 #define NVS_NS             "app_nvs"
@@ -56,6 +59,7 @@ static float       s_fb_cut_c;          // guarded by s_mux — user foldback-cu
 #define KEY_HEAT_COMMS_MS  "heat_comms_ms"   // u32 ms
 #define KEY_COOL_REL_C     "cool_rel_c"      // u32 centi-°C — cooldown-purge release temp
 #define KEY_FB_CUT_C       "fb_cut_c"        // u32 centi-°C — foldback-cut override (0 = auto)
+#define KEY_HEAT_METHOD    "heat_method"     // u8 pb_heater_method_t (0=bangbang default, 1=pid)
 #define KEY_FAULT_LATCH    "fault_latch"     // u8 0/1 — persisted safety-fault latch
 #define KEY_FAULT_CODE     "fault_code"      // u8 pb_fault_reason_t
 
@@ -149,7 +153,9 @@ esp_err_t pb_heater_init(void)
 #endif
     ssr_set(false);                  // guaranteed OFF before any request
     pb_heater_pid_reset(&s_pid);
+    s_heat_intent = false;
     taskENTER_CRITICAL(&s_mux);
+    s_method = PB_HEATER_METHOD_BANGBANG;   // safe default until load_config runs
     s_target_c = 0.0f;
     s_control_chamber_c = NAN;
     s_latched_off = false;
@@ -221,15 +227,20 @@ void pb_heater_load_config(void)
     uint32_t comms_ms = PB_HEATER_COMMS_TIMEOUT_MS_DEFAULT;
     float    cool_c   = PB_HEATER_COOL_RELEASE_C_DEFAULT;
     float    fb_cut   = 0.0f;   // 0 = auto (per-Rref default)
+    uint8_t  method   = PB_HEATER_METHOD_BANGBANG;   // default: v1.1.15 bang-bang
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READONLY, &h) == ESP_OK) {
         uint32_t v;
+        uint8_t  b;
         if (nvs_get_u32(h, KEY_HEAT_MAX_C, &v) == ESP_OK)    max_c    = centi_to_c(v);
         if (nvs_get_u32(h, KEY_HEAT_COMMS_MS, &v) == ESP_OK) comms_ms = v;
         if (nvs_get_u32(h, KEY_COOL_REL_C, &v) == ESP_OK)    cool_c   = centi_to_c(v);
         if (nvs_get_u32(h, KEY_FB_CUT_C, &v) == ESP_OK)      fb_cut   = centi_to_c(v);
+        if (nvs_get_u8(h, KEY_HEAT_METHOD, &b) == ESP_OK)    method   = b;
         nvs_close(h);
     }
+    // Any unknown/corrupt method value falls back to the safe bang-bang default.
+    if (method != PB_HEATER_METHOD_PID) method = PB_HEATER_METHOD_BANGBANG;
     // Clamp to the safe envelope regardless of what NVS held (defends against a
     // corrupted/hand-edited store — the ceiling can never exceed the ABS max).
     if (max_c < PB_HEATER_MIN_TARGET_C)     max_c = PB_HEATER_MIN_TARGET_C;
@@ -248,10 +259,12 @@ void pb_heater_load_config(void)
     s_comms_timeout_us = (int64_t)comms_ms * 1000;
     s_cool_release_c = cool_c;
     s_fb_cut_c = fb_cut;
+    s_method = method;
     if (s_target_c > s_max_target_c) s_target_c = s_max_target_c;
     taskEXIT_CRITICAL(&s_mux);
-    ESP_LOGI(TAG, "config: max_target=%.1fC comms_timeout=%ums cool_release=%.1fC fb_cut=%.1fC",
-             max_c, (unsigned)comms_ms, cool_c, fb_cut);
+    ESP_LOGI(TAG, "config: max_target=%.1fC comms_timeout=%ums cool_release=%.1fC fb_cut=%.1fC method=%s",
+             max_c, (unsigned)comms_ms, cool_c, fb_cut,
+             method == PB_HEATER_METHOD_PID ? "pid" : "bangbang");
 }
 
 esp_err_t pb_heater_set_max_target_c(float max_c)
@@ -361,6 +374,32 @@ float pb_heater_get_fb_cut_c(void)
     float c = s_fb_cut_c;
     taskEXIT_CRITICAL(&s_mux);
     return c;
+}
+
+esp_err_t pb_heater_set_method(pb_heater_method_t method)
+{
+    if (method != PB_HEATER_METHOD_BANGBANG && method != PB_HEATER_METHOD_PID)
+        return ESP_ERR_INVALID_ARG;
+    taskENTER_CRITICAL(&s_mux);
+    s_method = (uint8_t)method;
+    taskEXIT_CRITICAL(&s_mux);
+    nvs_handle_t h;                                 // persist outside the lock
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u8(h, KEY_HEAT_METHOD, (uint8_t)method);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    ESP_LOGI(TAG, "control method set to %s",
+             method == PB_HEATER_METHOD_PID ? "pid" : "bangbang");
+    return ESP_OK;
+}
+
+pb_heater_method_t pb_heater_get_method(void)
+{
+    taskENTER_CRITICAL(&s_mux);
+    uint8_t m = s_method;
+    taskEXIT_CRITICAL(&s_mux);
+    return (pb_heater_method_t)m;
 }
 
 void pb_heater_notify_link_alive(void)
@@ -620,7 +659,8 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
     if (latched || !armed) {
         if (s_on) ssr_set(false);
         pb_heater_pid_reset(&s_pid);
-        s_fb_cut      = false;   // drop foldback latches so the next arm starts clean
+        s_heat_intent = false;   // drop the bang-bang + foldback latches so the next
+        s_fb_cut      = false;   // arm starts clean rather than mid-cycle
         s_local_cut   = false;
         telemetry_set(0.0f, 0.0f, PB_HEATER_CONSTRAINT_OFF);
         return;
@@ -655,11 +695,43 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
     pb_heater_effective_foldback(pb_heater_get_fb_cut_c(), pb_ntc_rref_kohm(), &fb_cut, &fb_resume);
     s_fb_cut = pb_heater_foldback_cut(ps == PB_NTC_OK, ptc_c, s_fb_cut, fb_cut, fb_resume);
 
-    // Step 4 — advance the common chamber PID. If either local soft safety layer
-    // inhibits the requested output, hold integration while still updating the
-    // measurement/derivative history. The safety layers remain downstream and
-    // authoritative regardless of PID demand.
+    // Either soft safety layer inhibits heat regardless of the requested duty; it
+    // applies to both control methods below.
     bool safety_inhibited = s_local_cut || s_fb_cut;
+
+    // Step 4 — decide duty by the selected control method (persisted; default
+    // bang-bang v1.1.15). On a method change, reset BOTH paths so the newly
+    // selected one starts from clean history.
+    bool use_pid = (pb_heater_get_method() == PB_HEATER_METHOD_PID);
+    static int s_tick_method_prev = -1;   // control-task only; -1 forces a first-tick sync
+    if (s_tick_method_prev != (int)use_pid) {
+        pb_heater_pid_reset(&s_pid);
+        s_heat_intent = false;
+        s_tick_method_prev = (int)use_pid;
+    }
+
+    if (!use_pid) {
+        // Bang-bang (v1.1.15): chamber hysteresis decides the base demand; the local
+        // and element foldback layers above still gate it, and the SSR is driven
+        // full on/off with no time-proportioning.
+        if (regulation_c < (target - PB_HEATER_HYSTERESIS_C))
+            s_heat_intent = true;
+        else if (regulation_c >= target)
+            s_heat_intent = false;
+        bool bb_drive = s_heat_intent && !safety_inhibited;
+        pb_heater_constraint_t bb_constraint = PB_HEATER_CONSTRAINT_NONE;
+        if (s_fb_cut)                    bb_constraint = PB_HEATER_CONSTRAINT_ELEMENT_FOLDBACK;
+        else if (s_local_cut)            bb_constraint = PB_HEATER_CONSTRAINT_LOCAL_FOLDBACK;
+        else if (regulation_c >= target) bb_constraint = PB_HEATER_CONSTRAINT_TARGET_REACHED;
+        telemetry_set(bb_drive ? 1.0f : 0.0f, 1.0f, bb_constraint);
+        if (bb_drive != s_on) ssr_set(bb_drive);
+        return;
+    }
+
+    // PID / PTC (v1.1.16, opt-in). Advance the common chamber PID. If either local
+    // soft safety layer inhibits the requested output, hold integration while still
+    // updating the measurement/derivative history. The safety layers remain
+    // downstream and authoritative regardless of PID demand.
     float duty = 0.0f;
     bool pid_ok = pb_heater_pid_step(&s_pid, target, regulation_c,
                                      !safety_inhibited, &duty);
