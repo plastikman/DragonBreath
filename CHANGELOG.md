@@ -7,7 +7,7 @@ below into the GitHub Release notes.
 
 ## [Unreleased]
 
-## [1.1.19-rc2]
+## [1.1.19] - 2026-09-23
 
 ### Added
 - **Selectable chamber-control method — Bang-Bang (default) vs PID/PTC
@@ -28,8 +28,6 @@ below into the GitHub Release notes.
   **dragon-core v0.35.0** (`dc_wifi`), so it is family-wide rather than
   DragonBreath-specific.
 
-## [1.1.19-rc1]
-
 ### Fixed
 - **Chamber can't hold setpoint (regression since v1.1.16).** The chamber
   controller stalled ~2 °C below target ("gets to 64, can't reach 65"). The
@@ -41,6 +39,13 @@ below into the GitHub Release notes.
   settled hold; the element (PTC) foldback remains the real near-target limiter.
   Bench-validated on an enclosed U1: chamber hold 62.9 °C → 64.3 °C (recovering
   v1.1.15), matching the last-known-good firmware.
+- **AUTO picked the wrong material on multi-filament projects.** AUTO indexed the
+  slicer's per-slot `filament_type` list by the active tool, which on the
+  single-nozzle U1 is always slot 0 — so a project sliced from a later slot (e.g.
+  a PETG object in a PLA+PETG project) followed slot 0 and chose the wrong (or no)
+  chamber target. Now cross-references `filament_used_mm` to follow the filament
+  actually printed. Via **dragon-core v0.35.1** (`dc_moonraker`, #65);
+  live-validated on hardware.
 
 ### Changed
 - Cut steady-state SSR switching (~12/min → ~4/min) by widening the
@@ -49,10 +54,10 @@ below into the GitHub Release notes.
 - The gate that arms approach damping uses an EMA-filtered rise rate, so ~0.1 °C
   NTC quantization steps no longer flicker the cap through the hold.
 
-> Release-candidate for testing. The fixed safety cutoffs (105 °C element /
-> 85 °C chamber / 70 °C target) are unchanged. On a lossy enclosure, raising the
-> existing **Foldback cut** advanced setting (default 102 °C) toward 103 °C gives
-> the element more headroom to reach a full setpoint.
+> The fixed safety cutoffs (105 °C element / 85 °C chamber / 70 °C target) are
+> unchanged. On a lossy enclosure, raising the existing **Foldback cut** advanced
+> setting (default 102 °C) toward 103 °C gives the element more headroom to reach a
+> full setpoint.
 
 ## [1.1.18] - 2026-09-11
 
