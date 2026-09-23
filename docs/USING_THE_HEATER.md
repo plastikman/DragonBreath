@@ -93,6 +93,110 @@ or raising the bed, keep electronics-cooling fans running, park the toolhead awa
 from a hot area, or limit its chamber target. Put those printer-specific decisions
 in its start macro or Machine start G-code.
 
+## Making the printer wait for a chamber soak
+
+The U1 has no trustworthy bulk-chamber sensor, so **don't gate the print on
+temperature — soak on a timer.** Start the chamber early with `M141`, then hold for a
+fixed time before the first layer. A timed hold can't be fooled by a sensor that
+over-reads or drifts, and it can't wait forever the way a sensor gate with no timeout
+can. (In a validated 55 °C soak the DragonBreath outlet NTC read 55 while the cavity
+sensor read ~36 — about 19 °C apart — which is exactly why gating on either is
+unreliable.)
+
+The steps below are **live-validated on a Snapmaker U1 / PAXX**.
+
+### The `SOAK_CHAMBER` macro
+
+This macro does the timed hold and picks the duration from the target you pass, so the
+slicer's chamber value drives it automatically. Put it in a user-owned config file
+Klipper includes — on the U1 / PAXX firmware, create or append your own `.cfg` under
+`printer_data/config/extended/klipper/` (any name; survives firmware upgrades — do not
+use the managed files under `/usr/local/share/firmware-config/`), then
+`FIRMWARE_RESTART`.
+
+```klipper
+[gcode_macro SOAK_CHAMBER]
+description: Timed chamber soak; dwell chosen from TARGET (55C=15m, 60C=20m, 65C=30m, 70C=40m)
+#   TARGET  = chamber temp you're soaking to (C) - used only to pick the dwell length
+#   MINUTES = optional explicit override; if > 0 it wins over the TARGET mapping
+gcode:
+    {% set target = params.TARGET|default(0)|float %}
+    {% set mins   = params.MINUTES|default(0)|float %}
+    {% if mins <= 0 and target < 30 %}
+        RESPOND MSG="Chamber soak: skipped (no chamber target)"
+    {% else %}
+        {% if mins <= 0 %}
+            {% if target <= 55 %}
+                {% set mins = 15 %}
+            {% elif target <= 60 %}
+                {% set mins = 15 + (target - 55) * 1.0 %}
+            {% elif target <= 65 %}
+                {% set mins = 20 + (target - 60) * 2.0 %}
+            {% elif target <= 70 %}
+                {% set mins = 30 + (target - 65) * 2.0 %}
+            {% else %}
+                {% set mins = 40 %}
+            {% endif %}
+        {% endif %}
+        {% set ms = (mins * 60000)|int %}
+        RESPOND MSG="Chamber soak: holding {mins|round(1)} min ({target|int}C target)"
+        G4 P{ms}
+        RESPOND MSG="Chamber soak complete ({mins|round(1)} min)"
+    {% endif %}
+```
+
+Dwell by target (piecewise; tune for your enclosure and material — a longer hold only
+costs time, too short under-soaks the part):
+
+| Chamber target | Soak dwell |
+|---|---|
+| 55 °C | 15 min |
+| 60 °C | 20 min |
+| 65 °C | 30 min |
+| 70 °C (ceiling) | 40 min |
+
+- `SOAK_CHAMBER MINUTES=<n>` overrides the mapping for a one-off.
+- A target below 30 °C (e.g. a PLA profile with no chamber temp) **skips** the soak.
+- **Klipper's `G4` takes `P` (milliseconds) only — not `S` (seconds).** The macro uses
+  `G4 P{ms}`; `G4 S…` is silently ignored and would produce a zero-length "soak."
+
+### Wiring it into the stock U1 start G-code
+
+Three edits to **Machine start G-code** (the stock template has none of the chamber
+handling — you add it):
+
+1. **Start the chamber early**, right after the top bed command:
+   ```gcode
+   M140 S{bed_temperature_initial_layer_single}
+   M141 S{overall_chamber_temperature}   ; ADD: start the chamber, do not wait
+   ```
+2. **Re-assert the bed after plate detection.** The stock `DEFECT_DETECTION` /
+   `DETECT_BED_PLATE` sequence zeroes the bed set at the top, so without this the bed
+   sits cold through the whole warm-up and doesn't help the chamber:
+   ```gcode
+   DETECT_BED_PLATE
+   M140 S{bed_temperature_initial_layer_single}   ; ADD: re-assert bed so it assists the soak
+   ```
+3. **Replace the stock chamber wait with the soak** — after the bed wait (`M190`),
+   before `G28 Z`:
+   ```gcode
+   M190 S{bed_temperature_initial_layer_single}   ; stock bed wait (keeps the bed hot for the soak)
+   G0 Z5 F10000                                   ; stock
+   SOAK_CHAMBER TARGET={overall_chamber_temperature}   ; REPLACES `WAIT_CHAMBER_TEMP TIMEOUT=180`
+   ;WAIT_CHAMBER_TEMP TIMEOUT=180                 ; commented out
+   G28 Z                                          ; stock (continues to bed mesh, first layer)
+   ```
+
+Keep `M141 S0` in your Machine **end** G-code so DragonBreath turns off at print end.
+
+> **Turn off Orca's own chamber wait.** In the **filament preset**, uncheck **"Activate
+> temperature control"** — but leave the **printer preset**'s "Support controlling
+> chamber temperature" on and keep the chamber temperature value, so
+> `{overall_chamber_temperature}` still resolves. Otherwise SnapmakerOrca injects its
+> own blocking `M191` before `PRINT_START`, which fights this sequence (and on the U1
+> was observed to stall filament auto-feed). After slicing, confirm the file contains
+> **no `M191`** — only your `M141` at the top. See [The OrcaSlicer trap](#the-orcaslicer-trap).
+
 ## Auxiliary fan, bed, and toolhead position
 
 Heating commands are only part of chamber preheating. The printer's physical
@@ -229,65 +333,64 @@ soak is required.
 
 ## Worked example: Snapmaker U1 / PAXX Orca profile
 
-This is one application of the common “start together, wait later” policy. It is
-not a required DragonBreath sequence. The underscores below are normal G-code
-underscores; do not type backslashes before them.
+This is the concrete, **live-validated** set of edits for the U1 / PAXX Orca profile,
+using the timed [`SOAK_CHAMBER`](#the-soak_chamber-macro) approach above. It requires
+that macro to be installed first. The underscores below are normal G-code underscores;
+do not type backslashes before them.
 
-In **Printer settings → Machine G-code → Machine start G-code**, find:
-
-```gcode
-TIMELAPSE_START
-M140 S{bed_temperature_initial_layer_single}
-M104 T{initial_extruder} S140
-```
-
-Insert `M141` immediately after `M140`:
+**Edit 1 — start the chamber early.** In **Printer settings → Machine G-code → Machine
+start G-code**, find the top bed command and add `M141` right after it:
 
 ```gcode
 TIMELAPSE_START
 M140 S{bed_temperature_initial_layer_single}
-M141 S{overall_chamber_temperature} ; start chamber, do not wait
+M141 S{overall_chamber_temperature} ; ADD: start chamber, do not wait
 M104 T{initial_extruder} S140
 ```
 
-Later, find:
+**Edit 2 — re-assert the bed after plate detection.** The stock detection sequence
+zeroes the bed set at the top, so re-command it so it heats through the rest of prep
+and assists the soak:
 
 ```gcode
-M106 S255
-M109 S{nozzle_temperature[initial_extruder] - 90}
-M190 S{bed_temperature_initial_layer_single}
-M107 P2
+DETECT_BED_PLATE
+M140 S{bed_temperature_initial_layer_single} ; ADD: re-assert bed after detection
 ```
 
-Insert `M191` immediately after `M190`:
+**Edit 3 — replace the stock chamber wait with the soak.** Find the later block and
+swap `WAIT_CHAMBER_TEMP` for `SOAK_CHAMBER`:
 
 ```gcode
-M106 S255
-M109 S{nozzle_temperature[initial_extruder] - 90}
-M190 S{bed_temperature_initial_layer_single}
-M191 S{overall_chamber_temperature} ; wait for chamber; bed remains hot
+M190 S{bed_temperature_initial_layer_single}   ; stock bed wait
 M107 P2
+G90
+G0 Z5 F10000
+SOAK_CHAMBER TARGET={overall_chamber_temperature}  ; REPLACES the chamber wait
+;WAIT_CHAMBER_TEMP TIMEOUT=180                      ; commented out
 ```
 
-Do not remove the profile's existing `WAIT_CHAMBER_TEMP TIMEOUT=180`. Add this as
-the first line of Machine end G-code unless it is already present:
+Add `M141 S0` as the first line of Machine **end** G-code unless already present:
 
 ```gcode
 M141 S0 ; chamber off
 ```
 
-The supplied U1 start G-code also contains `M106 P2 S0` and later `M107 P2`. If
-this profile maps `P2` to the printer's auxiliary circulation fan, the `S0` leaves
-that fan off during warm-up. For the recommended 70% circulation starting point,
-change it to `M106 P2 S179` after confirming the U1 profile's `P2` mapping. Keep or
-relocate the later `M107 P2` depending on when circulation should stop. This fan is
-separate from DragonBreath's automatically controlled blower.
+**Disable Orca's injected wait.** In the filament preset, uncheck **"Activate
+temperature control"** (keep the printer preset's "Support controlling chamber
+temperature" on, and keep the chamber temperature value). Otherwise Orca injects a
+blocking `M191` before `PRINT_START` that fights this sequence and, on the U1, was seen
+to stall filament auto-feed. See [The OrcaSlicer trap](#the-orcaslicer-trap).
 
-After slicing, verify that there is no `M191` before
-`SET_PRINT_AUTO_BED_LEVELING`, that the early `M140`/`M141` and later
-`M190`/`M191` pairs render in that order, and that both chamber commands contain
-the same expected non-zero numeric target. If Orca rejects
-`overall_chamber_temperature`, use `{chamber_temperature[0]}` in both places.
+**Circulation fan.** The stock U1 start G-code also contains `M106 P2 S0` and later
+`M107 P2`. If this profile maps `P2` to the printer's auxiliary circulation fan, the
+`S0` leaves it off during warm-up; for ~70% circulation change it to `M106 P2 S179`
+after confirming the mapping. (The stock `SET_PURIFIER_MODE ... FAN_SPEED` also drives
+chamber circulation independently.) This fan is separate from DragonBreath's automatic
+blower.
+
+**After slicing, verify:** the file contains **no `M191`**, the `M141` appears near the
+top, and `SOAK_CHAMBER` appears where the chamber wait was. If Orca rejects
+`overall_chamber_temperature`, use `{chamber_temperature[0]}`.
 
 ## Quick diagnosis
 
