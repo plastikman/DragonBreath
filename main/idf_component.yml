@@ -10,9 +10,11 @@ dependencies:
     path: components/dc_evlog
     version: v0.35.2
   dc_source:
-    git: https://github.com/justinh-rahb/dragon-core.git
+    # TEMPORARY: fork branch for CI (Prusa filament-aware flag) while
+    # dragon-core#70 is in review. FLIP BACK to justinh-rahb + release tag.
+    git: https://github.com/plastikman/dragon-core.git
     path: components/dc_source
-    version: v0.35.2
+    version: feat/dc-prusa-material
   dc_bambu:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_bambu
