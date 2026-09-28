@@ -1,8 +1,10 @@
 dependencies:
   dc_prusa:
-    git: https://github.com/justinh-rahb/dragon-core.git
+    # TEMPORARY: pinned to the fork branch for CI while dragon-core#70 is in
+    # review. FLIP BACK to justinh-rahb + the release tag before merging.
+    git: https://github.com/plastikman/dragon-core.git
     path: components/dc_prusa
-    version: v0.35.2
+    version: feat/dc-prusa-material
   dc_evlog:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_evlog

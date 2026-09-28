@@ -285,10 +285,14 @@ static void control_task(void *arg)
                 if (s_km_up) db_klipper_mqtt_tick();
                 break;
             case DC_SRC_PRUSA:
-                // PrusaLink reports no filament type: FOLLOW THE BED. Engage the
-                // chamber (to the AUTO card's target) once the printer's bed setpoint
-                // reaches the AUTO card's bed threshold. Both come from pb_policy — the
-                // Auto card supplies this source's bed->chamber rule (no filament zones).
+                // PrusaLink AUTO is filament-aware when the printer reports the
+                // material, and falls back to bed-follow otherwise. dc_prusa fills
+                // ps.material from /api/v1/job (or the legacy telemetry.material)
+                // while printing; when it's known and maps to a filament zone we
+                // request that zone target, exactly like Bambu/Moonraker. When it's
+                // absent (e.g. a USB-sent file with no parsed metadata) we engage
+                // the chamber once the bed setpoint reaches the AUTO card's bed
+                // threshold. Both targets come from pb_policy (the Auto card).
                 if (s_prusa_up) {
                     dc_prusa_status_t ps;
                     dc_prusa_get_status(&ps);
@@ -296,11 +300,19 @@ static void control_task(void *arg)
                     if (src_connected) {
                         if (isfinite(ps.bed_temp)) bed_c = ps.bed_temp;
                         bed_target_c = ps.bed_target;
-                        pb_policy_snapshot_t pol;
-                        pb_policy_get_snapshot(&pol);
-                        if (pol.params.auto_bed_threshold_c > 0.0f &&
-                            ps.bed_target >= pol.params.auto_bed_threshold_c)
-                            src_target_c = pol.params.auto_target_c;
+                        // Filament-follow first (0 = no zone / unknown material).
+                        float zone = ps.material[0]
+                            ? (float)dc_bambu_zone_target(ps.material) : 0.0f;
+                        if (zone > 0.0f) {
+                            src_target_c = zone;
+                        } else {
+                            // Bed-follow fallback: no material or no matching zone.
+                            pb_policy_snapshot_t pol;
+                            pb_policy_get_snapshot(&pol);
+                            if (pol.params.auto_bed_threshold_c > 0.0f &&
+                                ps.bed_target >= pol.params.auto_bed_threshold_c)
+                                src_target_c = pol.params.auto_target_c;
+                        }
                     }
                 }
                 break;
