@@ -11,7 +11,7 @@ feature. So there is always a single owner of the setpoint — never several.
 |---|---|
 | **Klipper (Moonraker)** | Follows the printer over the Moonraker WebSocket. AUTO follows the active print's DragonBreath filament-zone target. The default and shipped path. |
 | **Bambu (LAN)** | Follows a Bambu Lab printer over LAN MQTT. AUTO follows the active print's DragonBreath filament-zone target (read-only from the printer; DragonBreath still owns the heater). |
-| **Prusa (PrusaLink)** | Follows the printer over PrusaLink. Because PrusaLink does not report filament type, AUTO follows the bed setpoint and the configured bed threshold. |
+| **Prusa (PrusaLink)** | Follows the printer over PrusaLink. AUTO follows the active print's DragonBreath filament-zone target, like Klipper/Bambu — the loaded filament is read from PrusaLink (`/api/printer` `telemetry.material`). With no material or no matching zone, AUTO stays idle (no bed-follow fallback). |
 | **Home Assistant** | HA is the **controller** — a climate entity + sensors auto-appear via MQTT discovery, and HA sets target / on / off. |
 | **None (unbound)** | No external controller. The heater is driven only from the DragonBreath web UI (or left idle). |
 
