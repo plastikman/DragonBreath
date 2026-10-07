@@ -95,28 +95,31 @@ in its start macro or Machine start G-code.
 
 ## Making the printer wait for a chamber soak
 
-Start the chamber early with `M141`, then wait for it before the first layer. Two
-ways, both **live-validated on a Snapmaker U1 / PAXX**:
+Start the chamber early with `M141`, then wait for it before the first layer with
+`M191` and a release temperature — start heating toward a target and release the wait
+once the chamber reaches a slightly lower "start printing" temperature. Standard
+`M191`, slicer-driven, and the release margin means it won't stall if the chamber
+settles a degree or two short of target. **Live-validated on a Snapmaker U1 / PAXX.**
 
-- **Recommended — `M191` with a release temperature.** Start heating toward a target
-  and release the wait once the chamber reaches a slightly lower "start printing"
-  temperature. Standard `M191`, slicer-driven, and the release margin means it won't
-  stall if the chamber settles a degree or two short of target.
-- **Alternative — a timed soak (`SOAK_CHAMBER`).** Ignore the sensor and hold for a
-  fixed time. Use this when you want a guaranteed bulk-chamber soak regardless of what
-  the sensor reads (the U1's outlet NTC over-reads the box — in a validated 55 °C hold
-  it read 55 while the cavity sensor read ~36).
+### Wait with `M191` + a release temperature
 
-### Wait with `M191` + a release temperature (recommended)
-
-`M191` here is the DragonBreath chamber macro (shipped in the U1/PAXX managed config;
-on other Klipper printers see
-[dragonbreath-klipper](https://github.com/plastikman/dragonbreath-klipper)). It takes:
+`M191` here is the DragonBreath chamber macro. It takes:
 
 - `S` — the chamber **target** (heat toward this).
 - `R` — the **release** temperature: resume the print once the chamber reaches `R`
   while it keeps heating toward `S`. Defaults to `S-5` and is clamped so it can never
   exceed `S`.
+
+> **Where the `R`-aware `M191` comes from.** On the Snapmaker U1/PAXX it's part of the
+> managed chamber-heater config. The `R` (release-temperature) form shown here is in
+> PAXX `develop` and lands in a future PAXX release; **until your PAXX release includes
+> it**, define the macro yourself in a user-owned `.cfg` under
+> `printer_data/config/extended/klipper/` — it overrides the managed `M191` (see the
+> definition in
+> [dragonbreath-klipper](https://github.com/plastikman/dragonbreath-klipper)). **Once a
+> PAXX release ships the updated macro, delete that override from your `user.cfg`** and
+> use the managed `M191`. On other (non-U1) Klipper printers, `M191` comes from
+> dragonbreath-klipper directly.
 
 Which slicer you use decides how you set `R`:
 
@@ -158,79 +161,6 @@ so without this the bed sits cold through warm-up and doesn't help the chamber.
 > the printer preset's "Support controlling chamber temperature" on so the placeholders
 > still resolve), then slice and confirm the **only** `M191` is the one *you* placed at
 > the wait point. See [The OrcaSlicer trap](#the-orcaslicer-trap).
-
-### Alternative: timed soak with `SOAK_CHAMBER`
-
-When you want a guaranteed fixed-time bulk soak instead of a sensor wait, use this
-macro. It holds for a fixed time and picks the duration from the target you pass, so
-the slicer's chamber value drives it automatically. Put it in a user-owned config file
-Klipper includes — on the U1 / PAXX firmware, create or append your own `.cfg` under
-`printer_data/config/extended/klipper/` (any name; survives firmware upgrades — do not
-use the managed files under `/usr/local/share/firmware-config/`), then
-`FIRMWARE_RESTART`.
-
-```klipper
-[gcode_macro SOAK_CHAMBER]
-description: Timed chamber soak; dwell chosen from TARGET (55C=15m, 60C=20m, 65C=30m, 70C=40m)
-#   TARGET  = chamber temp you're soaking to (C) - used only to pick the dwell length
-#   MINUTES = optional explicit override; if > 0 it wins over the TARGET mapping
-gcode:
-    {% set target = params.TARGET|default(0)|float %}
-    {% set mins   = params.MINUTES|default(0)|float %}
-    {% if mins <= 0 and target < 30 %}
-        RESPOND MSG="Chamber soak: skipped (no chamber target)"
-    {% else %}
-        {% if mins <= 0 %}
-            {% if target <= 55 %}
-                {% set mins = 15 %}
-            {% elif target <= 60 %}
-                {% set mins = 15 + (target - 55) * 1.0 %}
-            {% elif target <= 65 %}
-                {% set mins = 20 + (target - 60) * 2.0 %}
-            {% elif target <= 70 %}
-                {% set mins = 30 + (target - 65) * 2.0 %}
-            {% else %}
-                {% set mins = 40 %}
-            {% endif %}
-        {% endif %}
-        {% set ms = (mins * 60000)|int %}
-        RESPOND MSG="Chamber soak: holding {mins|round(1)} min ({target|int}C target)"
-        G4 P{ms}
-        RESPOND MSG="Chamber soak complete ({mins|round(1)} min)"
-    {% endif %}
-```
-
-Dwell by target (piecewise; tune for your enclosure and material — a longer hold only
-costs time, too short under-soaks the part):
-
-| Chamber target | Soak dwell |
-|---|---|
-| 55 °C | 15 min |
-| 60 °C | 20 min |
-| 65 °C | 30 min |
-| 70 °C (ceiling) | 40 min |
-
-- `SOAK_CHAMBER MINUTES=<n>` overrides the mapping for a one-off.
-- A target below 30 °C (e.g. a PLA profile with no chamber temp) **skips** the soak.
-- **Klipper's `G4` takes `P` (milliseconds) only — not `S` (seconds).** The macro uses
-  `G4 P{ms}`; `G4 S…` is silently ignored and would produce a zero-length "soak."
-
-Wire it into Machine start G-code exactly like the
-[`M191` example above](#wait-with-m191--a-release-temperature-recommended) — `M141`
-near the top, the bed re-assert after `DETECT_BED_PLATE`, `M141 S0` in the end G-code —
-but at the wait point use `SOAK_CHAMBER` instead of `M191`:
-
-```gcode
-M190 S{bed_temperature_initial_layer_single}   ; stock bed wait
-G0 Z5 F10000                                   ; stock
-SOAK_CHAMBER TARGET={overall_chamber_temperature}   ; timed soak at the wait point
-;WAIT_CHAMBER_TEMP TIMEOUT=180                 ; COMMENT OUT the stock chamber wait
-G28 Z                                          ; stock (continues to bed mesh, first layer)
-```
-
-The same OrcaSlicer caveat applies: uncheck the filament preset's "Activate temperature
-control" so Orca doesn't inject its own blocking `M191` at the top of the file (with the
-timed soak there should be **no** `M191` in the sliced output at all).
 
 ## Auxiliary fan, bed, and toolhead position
 
@@ -369,10 +299,8 @@ soak is required.
 ## Worked example: Snapmaker U1 / PAXX Orca profile
 
 This is the concrete, **live-validated** set of edits for the U1 / PAXX Orca profile,
-using the recommended [`M191`](#wait-with-m191--a-release-temperature-recommended) wait.
-(For a guaranteed fixed-time soak instead, swap the Edit-3 line for
-[`SOAK_CHAMBER`](#alternative-timed-soak-with-soak_chamber).) The underscores below are
-normal G-code underscores; do not type backslashes before them.
+using the [`M191`](#wait-with-m191--a-release-temperature) wait. The underscores below
+are normal G-code underscores; do not type backslashes before them.
 
 **Edit 1 — start the chamber early.** In **Printer settings → Machine G-code → Machine
 start G-code**, find the top bed command and add `M141` right after it:
