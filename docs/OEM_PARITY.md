@@ -12,7 +12,7 @@ v1.0.1 makes the fan-only filtration band a standing behavior (opt-in, off by de
 | Stock/OEM behavior | DragonBreath status | Notes |
 |---|---|---|
 | Manual chamber target | **Implemented** | Local Web UI and Klipper `M141`/`M191`; device-side regulation and limits remain authoritative. |
-| Automatic chamber mode | **Implemented** | Klipper/Moonraker and Bambu follow the active print's configured filament-zone target. PrusaLink, which has no filament metadata, follows its bed setpoint and the configured bed threshold. Missing source/profile data fails to heat-off. |
+| Automatic chamber mode | **Implemented** | Klipper/Moonraker, Bambu, and PrusaLink all follow the active print's configured filament-zone target (PrusaLink reads the loaded filament from `/api/printer` `telemetry.material`). Missing source/material/profile data fails to heat-off. |
 | Timed filament drying | **Implemented** | A target plus a bounded 1–12 hour duration with automatic shutoff, driven from the dashboard Dry screen and API v2 (`drying_start` / `drying_stop`). Material presets are implemented (PLA 45 °C/6 h, PETG 65 °C/4 h, ABS 70 °C/4 h, Nylon 55 °C/8 h — one tap pre-fills target + duration). Validated on hardware. |
 | Chamber and PTC temperature display | **Implemented** | Both sensors and their health are exposed in the dashboard and API v2 state. |
 | Sensor-fault and over-temperature shutdown | **Implemented** | Heater fails closed; fixed 85 °C chamber and 105 °C PTC cutoffs are not user-configurable. |
