@@ -116,9 +116,12 @@ Four front-panel LEDs, matching the stock panel (direct active-high GPIO):
 The four active-low inputs (Power GPIO9, Auto GPIO8, On GPIO10, Dry GPIO2) are
 polled at 10 ms with 20 ms debounce and short/long-press detection (`pb_buttons`):
 
-- A **short press** toggles that button's labeled mode, arming it from the
-  remembered parameters (last-used target/threshold/hours); pressing it again, or
-  pressing Power, returns to OFF.
+- Short presses on Auto and Dry toggle their labeled modes, using the remembered
+  parameters. Power is the master OFF button.
+- When no control source is bound, tap **On** 1–4 times within 700 ms to start a
+  local manual run for 6, 12, 18, or 24 hours. The On LED flashes the selected
+  count once as confirmation. Press Power to stop the run. With a printer source
+  bound, On keeps its existing single-press behavior.
 - A **2 s long-press** on any button latches a **panic-off** — heater off, mode
   OFF, remote lease invalidated. It is not a safety-rated emergency stop (see
   [`SAFETY.md`](SAFETY.md)); the hardware over-temp backstops remain the
