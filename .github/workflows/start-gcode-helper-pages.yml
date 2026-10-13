@@ -1,0 +1,35 @@
+name: Deploy Start G-code Helper
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/start-gcode-helper/**"
+      - ".github/workflows/start-gcode-helper-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Upload page artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: tools/start-gcode-helper
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

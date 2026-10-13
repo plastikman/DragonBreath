@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111827">
+  <title>DragonBreath Start G-code Helper</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">DRAGONBREATH · START G-CODE</p>
+      <h1>Add chamber control to your start G-code</h1>
+      <p class="intro">Choose a start G-code file or paste its contents. The helper adds the chamber target, waits for temperature with the circulation fan at 70%, then turns that fan off.</p>
+    </header>
+
+    <section class="card" aria-labelledby="upload-title">
+      <h2 id="upload-title">1. Add your start G-code</h2>
+      <label class="dropzone" id="dropzone" for="file-input">
+        <span class="upload-icon" aria-hidden="true">↑</span>
+        <span><strong>Choose a file</strong> or drop it here</span>
+        <small>G-code or text · stays on this device</small>
+      </label>
+      <input id="file-input" type="file" accept=".gcode,.gco,.g,.gc,.txt,text/plain">
+      <p id="filename" class="filename" aria-live="polite">No file selected</p>
+      <label for="source">Or paste your start G-code</label>
+      <textarea id="source" rows="11" spellcheck="false" placeholder="Paste start G-code containing M140 and M190…"></textarea>
+    </section>
+
+    <section class="card settings" aria-labelledby="settings-title">
+      <h2 id="settings-title">2. Set the chamber target</h2>
+      <label for="target">Temperature command value</label>
+      <input id="target" type="text" value="{overall_chamber_temperature}" autocomplete="off" spellcheck="false">
+      <p class="hint">Keep the slicer variable for a start-G-code template. For an already-sliced file, enter its chamber temperature, for example <code>55</code>.</p>
+      <button id="process" type="button">Add chamber commands</button>
+      <p id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card result" id="result-card" hidden aria-labelledby="result-title">
+      <div class="result-heading">
+        <div><h2 id="result-title">3. Review and download</h2><p id="result-summary" class="hint"></p></div>
+        <button id="download" class="secondary" type="button">Download updated G-code</button>
+      </div>
+      <textarea id="output" rows="16" spellcheck="false" aria-label="Updated G-code preview"></textarea>
+    </section>
+
+    <footer>
+      <p>The helper places <code>M141</code> after the first <code>M140</code>, then adds <code>M106 P2 S178</code>, <code>M191</code>, and <code>M107 P2</code> after the <code>G0 Z5</code> following <code>M190</code>. It comments out an active <code>WAIT_CHAMBER_TEMP</code> in that startup section. Check the preview before using the file.</p>
+      <p>Your file is processed in this browser and is never uploaded.</p>
+    </footer>
+  </main>
+  <script src="processor.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
