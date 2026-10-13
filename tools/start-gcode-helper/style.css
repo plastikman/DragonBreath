@@ -37,6 +37,8 @@ textarea { min-height: 190px; resize: vertical; padding: 14px; tab-size: 2; }
 input[type="text"] { padding: 12px; }
 textarea:focus, input:focus { outline: 2px solid #559ee3; outline-offset: 1px; }
 .hint { margin: 8px 0 18px; font-size: .89rem; }
+.warning { margin: 0 0 16px; padding: 12px 14px; border: 1px solid #806333; border-radius: 10px; background: #332916; color: #ffe1a6; }
+.warning strong { color: #fff0cc; }
 code { color: #c7e2ff; }
 button { min-height: 46px; padding: 11px 18px; border: 1px solid transparent; border-radius: 10px; background: #3185d5; color: white; font: inherit; font-weight: 750; cursor: pointer; }
 button:hover { background: #4499e9; }

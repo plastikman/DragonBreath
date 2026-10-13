@@ -19,12 +19,10 @@ assert.equal((result.text.match(/^M191 /gm) || []).length, 1);
 assert.match(result.text, /M140 .*\nM141 S\{overall_chamber_temperature\}/);
 assert.match(result.text, /G0 Z5 F10000\nM106 P2 S178\nM191 S\{overall_chamber_temperature\}\nM107 P2\n; WAIT_CHAMBER_TEMP TIMEOUT=180\nG28 Z/);
 
-const updated = processGcode(result.text, "55");
-assert.equal((updated.text.match(/^M141 /gm) || []).length, 1);
-assert.equal((updated.text.match(/^M191 /gm) || []).length, 1);
-assert.match(updated.text, /M141 S55/);
-assert.match(updated.text, /M106 P2 S178\nM191 S55\nM107 P2/);
-assert.equal((updated.text.match(/^; WAIT_CHAMBER_TEMP/gm) || []).length, 1);
+assert.throws(() => processGcode(result.text, "55"), /original, unmodified slicer start G-code/);
+assert.throws(() => processGcode(template.replace("M140", "M140\nM141 S50"), "55"), /already contains DragonBreath chamber commands/);
+assert.throws(() => processGcode(template.replace("G0 Z5 F10000", "G0 Z5 F10000\nM191 S50"), "55"), /already contains DragonBreath chamber commands/);
+assert.throws(() => processGcode(template.replace("G0 Z5 F10000", "G0 Z5 F10000\nM106 P2 S178"), "55"), /already contains DragonBreath chamber commands/);
 
 const outsideFan = template + "\nM106 P2 S255\n";
 assert.match(processGcode(outsideFan, "55").text, /M107 P2\n; WAIT_CHAMBER_TEMP TIMEOUT=180\nG28 Z[\s\S]*M106 P2 S255/);
