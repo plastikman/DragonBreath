@@ -7,7 +7,15 @@
   const filename = document.getElementById("filename");
   const resultCard = document.getElementById("result-card");
   const output = document.getElementById("output");
+  const originalConfirmation = document.getElementById("confirm-original");
+  const processButton = document.getElementById("process");
   let downloadName = "start-gcode-updated.gcode";
+
+  function clearOriginalConfirmation() {
+    originalConfirmation.checked = false;
+    processButton.disabled = true;
+    resultCard.hidden = true;
+  }
 
   function showError(message) {
     status.textContent = message;
@@ -24,6 +32,7 @@
     const reader = new FileReader();
     reader.onload = () => {
       source.value = String(reader.result || "");
+      clearOriginalConfirmation();
       downloadName = file.name.replace(/\.(?:gcode|gco|gc|g|txt)$/i, "") + "-updated.gcode";
       filename.textContent = file.name;
       status.textContent = "File loaded locally. Review the text, then add the commands.";
@@ -35,6 +44,7 @@
   }
 
   fileInput.addEventListener("change", () => readFile(fileInput.files[0]));
+  source.addEventListener("input", clearOriginalConfirmation);
   for (const eventName of ["dragenter", "dragover"]) {
     dropzone.addEventListener(eventName, (event) => {
       event.preventDefault();
@@ -49,7 +59,11 @@
   }
   dropzone.addEventListener("drop", (event) => readFile(event.dataTransfer.files[0]));
 
-  document.getElementById("process").addEventListener("click", () => {
+  originalConfirmation.addEventListener("change", () => {
+    processButton.disabled = !originalConfirmation.checked;
+  });
+
+  processButton.addEventListener("click", () => {
     try {
       const result = window.StartGcodeProcessor.processGcode(source.value, target.value);
       output.value = result.text;

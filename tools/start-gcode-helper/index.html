@@ -17,7 +17,8 @@
 
     <section class="card" aria-labelledby="upload-title">
       <h2 id="upload-title">1. Add your start G-code</h2>
-      <p class="warning"><strong>Use only original, unmodified slicer start G-code.</strong> Do not run this helper on code that already has DragonBreath chamber commands. The helper stops if it finds them.</p>
+      <p class="warning"><strong>Start from the original, unmodified slicer start G-code.</strong> This helper cannot prove a file is otherwise unmodified. It only checks the startup section for existing DragonBreath chamber commands and stops if it finds them.</p>
+      <label class="confirm-original"><input id="confirm-original" type="checkbox"> I’m using the original start G-code from my slicer, before adding these chamber commands.</label>
       <label class="dropzone" id="dropzone" for="file-input">
         <span class="upload-icon" aria-hidden="true">↑</span>
         <span><strong>Choose a file</strong> or drop it here</span>
@@ -34,7 +35,7 @@
       <label for="target">Temperature command value</label>
       <input id="target" type="text" value="{overall_chamber_temperature}" autocomplete="off" spellcheck="false">
       <p class="hint">Keep the slicer variable for a start-G-code template. For an already-sliced file, enter its chamber temperature, for example <code>55</code>.</p>
-      <button id="process" type="button">Add chamber commands</button>
+      <button id="process" type="button" disabled>Add chamber commands</button>
       <p id="status" role="status" aria-live="polite"></p>
     </section>
 

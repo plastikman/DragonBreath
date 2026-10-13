@@ -4,9 +4,10 @@ A dependency-free static page for adding DragonBreath chamber control to a
 printer's start G-code. It runs completely in the browser; files are never
 uploaded to a server.
 
-Use only the original, unmodified slicer start G-code. Do not run the helper on
-code that already has DragonBreath chamber commands. It stops if it finds
-`M141`, `M191`, or the helper's `M106 P2 S178` fan command in the startup area.
+Start with the original, unmodified slicer start G-code. The helper cannot
+prove that a file is otherwise unmodified: it only checks the startup section
+for `M141`, `M191`, or the helper's `M106 P2 S178` fan command and stops if it
+finds one. Users must confirm they started from the original slicer code.
 
 The helper places `M141 S<target>` after the first `M140`, then looks for the
 first `G0 Z5` after `M190` and adds this wait sequence beneath it:
