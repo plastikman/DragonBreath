@@ -484,6 +484,8 @@ void app_main(void)
     pb_ntc_load_calibration();               // persisted per-channel offsets (clamped ±5 °C on load)
     pb_leds_load_config();                   // persisted status-LED master enable (default ON)
     pb_policy_load_params();                 // remembered mode params (never a mode/target — boot stays OFF)
+    s_src = dc_source_get();                 // persisted, stable until restart
+    pb_policy_set_control_source(s_src);
 
     // Start the safety/telemetry loop — it then runs regardless of the network
     // coming up (a blocking/hung network stack must never stop it). The SSR is
@@ -521,7 +523,6 @@ void app_main(void)
     // default and the shipped path; Bambu/HA are opt-in. Each is log-and-continue
     // like the rest of network bring-up — a source that fails to init just leaves
     // the device without printer-follow, never aborting the safety loop.
-    s_src = dc_source_get();
     switch (s_src) {
     case DC_SRC_BAMBU:
         if ((e = dc_bambu_start()) != ESP_OK)

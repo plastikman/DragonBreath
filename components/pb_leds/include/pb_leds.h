@@ -33,6 +33,7 @@ typedef enum {
     PB_LED_BLINK,        // ~2.5 Hz
     PB_LED_BLINK_SLOW,   // ~0.5 Hz
     PB_LED_CODE,         // N short pulses, gap, repeat (count via pb_leds_set_code)
+    PB_LED_CODE_ONCE,    // N short pulses once, then off
 } pb_led_pattern_t;
 
 // Configure the LED GPIOs (driven low) and start the driver task. Idempotent-
@@ -44,6 +45,7 @@ void pb_leds_set(pb_led_id_t id, pb_led_pattern_t pattern);
 
 // Set a LED to the CODE pattern blinking `pulses` short pulses per cycle.
 void pb_leds_set_code(pb_led_id_t id, uint8_t pulses);
+void pb_leds_set_code_once(pb_led_id_t id, uint8_t pulses);
 
 // Current logical pattern, including when dev-board HIL compiles GPIO out.
 pb_led_pattern_t pb_leds_get(pb_led_id_t id);

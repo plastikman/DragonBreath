@@ -1,6 +1,7 @@
 #include "pb_policy.h"
 #include "pb_heater.h"
 #include "pb_leds.h"
+#include "dc_source.h"
 #include "nvs.h"
 
 #include <math.h>
@@ -29,6 +30,7 @@ static bool heater_relatch;
 static bool heater_clear_persist_fails;
 static uint8_t fan_level;
 static pb_led_pattern_t led_pattern[PB_LED_COUNT];
+static dc_ctl_source_t selected_source;
 static float chamber_c = 25.0f;
 static float ptc_c = 25.0f;
 static pb_ntc_status_t chamber_status = PB_NTC_OK;
@@ -122,6 +124,17 @@ uint8_t pb_fan_get_level(void) { return fan_level; }
 void pb_leds_set(pb_led_id_t id, pb_led_pattern_t pattern)
 {
     if (id >= 0 && id < PB_LED_COUNT) led_pattern[id] = pattern;
+}
+
+void pb_leds_set_code_once(pb_led_id_t id, uint8_t pulses)
+{
+    (void)pulses;
+    if (id >= 0 && id < PB_LED_COUNT) led_pattern[id] = PB_LED_CODE_ONCE;
+}
+
+pb_led_pattern_t pb_leds_get(pb_led_id_t id)
+{
+    return (id >= 0 && id < PB_LED_COUNT) ? led_pattern[id] : PB_LED_OFF;
 }
 
 static unsigned wake_calls;
@@ -240,11 +253,13 @@ static void reset_fixture(void)
     panic_logged_before_wake = false;
     last_evlog[0] = '\0';
     memset(led_pattern, 0, sizeof led_pattern);
+    selected_source = DC_SRC_KLIPPER;
     chamber_c = 25.0f;
     ptc_c = 25.0f;
     chamber_status = PB_NTC_OK;
     ptc_status = PB_NTC_OK;
     CHECK(pb_policy_init() == ESP_OK);
+    pb_policy_set_control_source(selected_source);
     pb_policy_set_wake_cb(count_wake);
 }
 
@@ -945,6 +960,104 @@ static void test_button_short_toggles_modes(void)
     CHECK(snapshot().mode == PB_MODE_OFF);
 }
 
+static void test_unbound_on_button_selects_local_duration(void)
+{
+    for (uint8_t presses = 1; presses <= 4; ++presses) {
+        reset_fixture();
+        pb_policy_load_params();
+        selected_source = DC_SRC_NONE;
+        pb_policy_set_control_source(selected_source);
+
+        for (uint8_t i = 0; i < presses; ++i) {
+            pb_policy_on_button(PB_BUTTON_ON, PB_BUTTON_SHORT);
+            CHECK(snapshot().mode == PB_MODE_OFF); // wait for more taps
+            fake_now_us += 100000;
+        }
+        fake_now_us += ((int64_t)PB_POLICY_ON_BUTTON_CLICK_MS * 1000) + 1;
+        pb_policy_tick();
+
+        pb_policy_snapshot_t snap = snapshot();
+        CHECK(snap.mode == PB_MODE_POWER_ON);
+        CHECK(snap.source == DB_SOURCE_BUTTON);
+        CHECK(!snap.lease_active);
+        CHECK(snap.requested_target_c == 50.0f);
+        CHECK(led_pattern[PB_LED_ON] == PB_LED_CODE_ONCE);
+        pb_policy_tick();
+        CHECK(led_pattern[PB_LED_ON] == PB_LED_CODE_ONCE); // policy leaves the ack visible
+        led_pattern[PB_LED_ON] = PB_LED_OFF; // the LED sequencer completed its one-shot
+        pb_policy_tick();
+        CHECK(led_pattern[PB_LED_ON] == PB_LED_SOLID);
+
+        uint32_t hours = (uint32_t)presses * 6U;
+        fake_now_us += (int64_t)hours * 60 * 60 * 1000000 - 1;
+        pb_policy_tick();
+        CHECK(snapshot().mode == PB_MODE_POWER_ON);
+        fake_now_us += 2;
+        pb_policy_tick();
+        CHECK(snapshot().mode == PB_MODE_OFF);
+        CHECK(!snapshot().fault_latched);
+    }
+}
+
+static void test_unbound_on_button_caps_at_24_hours(void)
+{
+    reset_fixture();
+    pb_policy_load_params();
+    selected_source = DC_SRC_NONE;
+    pb_policy_set_control_source(selected_source);
+    for (int i = 0; i < 5; ++i) {
+        pb_policy_on_button(PB_BUTTON_ON, PB_BUTTON_SHORT);
+        fake_now_us += 100000;
+    }
+    fake_now_us += ((int64_t)PB_POLICY_ON_BUTTON_CLICK_MS * 1000) + 1;
+    pb_policy_tick();
+    CHECK(snapshot().mode == PB_MODE_POWER_ON);
+    fake_now_us += (int64_t)24 * 60 * 60 * 1000000 - 1;
+    pb_policy_tick();
+    CHECK(snapshot().mode == PB_MODE_POWER_ON);
+    fake_now_us += 2;
+    pb_policy_tick();
+    CHECK(snapshot().mode == PB_MODE_OFF);
+}
+
+static void test_pending_unbound_click_is_cancelled_if_source_binds(void)
+{
+    reset_fixture();
+    selected_source = DC_SRC_NONE;
+    pb_policy_set_control_source(selected_source);
+    pb_policy_on_button(PB_BUTTON_ON, PB_BUTTON_SHORT);
+    selected_source = DC_SRC_KLIPPER;
+    pb_policy_set_control_source(selected_source);
+    fake_now_us += ((int64_t)PB_POLICY_ON_BUTTON_CLICK_MS * 1000) + 1;
+    pb_policy_tick();
+    CHECK(snapshot().mode == PB_MODE_OFF);
+}
+
+static void test_power_button_cancels_pending_on_selection(void)
+{
+    reset_fixture();
+    selected_source = DC_SRC_NONE;
+    pb_policy_set_control_source(selected_source);
+    pb_policy_on_button(PB_BUTTON_ON, PB_BUTTON_SHORT);
+    pb_policy_on_button(PB_BUTTON_POWER, PB_BUTTON_SHORT);
+    fake_now_us += ((int64_t)PB_POLICY_ON_BUTTON_CLICK_MS * 1000) + 1;
+    pb_policy_tick();
+    CHECK(snapshot().mode == PB_MODE_OFF);
+}
+
+static void test_button_duration_rejects_unsupported_hours(void)
+{
+    reset_fixture();
+    CHECK(pb_policy_set_button_power_on(50.0f, 5, PB_POLICY_REVISION_ANY)
+          == PB_POLICY_INVALID);
+    CHECK(pb_policy_set_button_power_on(50.0f, 7, PB_POLICY_REVISION_ANY)
+          == PB_POLICY_INVALID);
+    CHECK(pb_policy_set_button_power_on(50.0f, 30, PB_POLICY_REVISION_ANY)
+          == PB_POLICY_INVALID);
+    CHECK(pb_policy_set_button_power_on(50.0f, 6, PB_POLICY_REVISION_ANY)
+          == PB_POLICY_BUSY); // selection is only available while unbound
+}
+
 static void test_button_power_short_while_off_does_not_bump_revision(void)
 {
     reset_fixture();
@@ -1329,6 +1442,11 @@ int main(void)
     test_params_failed_write_stays_dirty_and_retries();
     test_params_survive_reboot_but_mode_does_not();
     test_button_short_toggles_modes();
+    test_unbound_on_button_selects_local_duration();
+    test_unbound_on_button_caps_at_24_hours();
+    test_pending_unbound_click_is_cancelled_if_source_binds();
+    test_power_button_cancels_pending_on_selection();
+    test_button_duration_rejects_unsupported_hours();
     test_button_power_short_while_off_does_not_bump_revision();
     test_button_invalidates_remote_lease();
     test_remote_commands_wake_only_when_accepted();

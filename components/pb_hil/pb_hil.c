@@ -57,6 +57,7 @@ static const char *led_pattern_str(pb_led_pattern_t pattern)
         case PB_LED_BLINK: return "blink";
         case PB_LED_BLINK_SLOW: return "blink_slow";
         case PB_LED_CODE: return "code";
+        case PB_LED_CODE_ONCE: return "code_once";
         case PB_LED_OFF:
         default: return "off";
     }
