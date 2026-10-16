@@ -18,7 +18,7 @@ dependencies:
   dc_wifi:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_wifi
-    version: v0.35.3
+    version: 716bd76ac20c735dd08396bf3a225e42e4b198c7 # dragon-core PR #71
   dc_moonraker:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_moonraker
