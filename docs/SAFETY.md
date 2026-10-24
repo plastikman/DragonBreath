@@ -63,7 +63,8 @@ of any offset.
 
 ## Thermistor channel mapping
 `swap_thermistors` is an opt-in setting for the uncommon case where the chamber
-and PTC sensor connectors are crossed at the board. It swaps the complete logical
+and PTC sensor connectors are plugged into each other's JST sockets on the board.
+It swaps the complete logical
 channels, so the 85 °C chamber cutoff, 105 °C PTC cutoff, fault status, and
 per-channel calibration follow the selected sensor roles. The choice is staged
 in NVS and takes effect only after reboot; the live mapping cannot change while

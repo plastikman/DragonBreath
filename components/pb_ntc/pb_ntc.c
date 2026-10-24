@@ -29,7 +29,7 @@ static const char *TAG = "pb_ntc";
 #define PB_NTC_NVS_NS       "app_nvs"
 #define PB_NTC_KEY_OFF_CH   "ntc_off_ch"    // i32 centi-°C, chamber
 #define PB_NTC_KEY_OFF_PTC  "ntc_off_ptc"   // i32 centi-°C, PTC
-#define PB_NTC_KEY_SWAP     "ntc_swap"      // u8 bool, swap chamber and PTC ADC inputs
+#define PB_NTC_KEY_SWAP     "ntc_swap"      // u8 bool, exchange the chamber/PTC JST input channels
 // PB_NTC_OFFSET_CENTI_MAX + pb_ntc_clamp_offset_centi() live in pb_ntc.h so the
 // loader, the setter and the host test all share one bound / one clamp.
 

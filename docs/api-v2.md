@@ -278,7 +278,8 @@ These predate/sit beside the versioned control surface and are stable:
   filtration band (standing — runs whenever enabled + Moonraker connected + bed
   setpoint ≥ `filter_temp`, independent of mode).
   `leds_enabled` is the status-LED master enable (bool, default `true`).
-- `swap_thermistors` is the requested chamber/PTC input mapping (bool, default
+- `swap_thermistors` is the requested chamber/PTC input mapping for crossed JST
+  connector assignments (bool, default
   `false`); `swap_thermistors_active` reports the mapping latched at boot. A
   changed selection is saved but requires a reboot to take effect.
 - `POST /settings?max=<°C>&comms_ms=<ms>&cool_release=<°C>&fb_cut=<°C>&filter_temp=<°C>&filter_auto=<0|1>&leds_enabled=<0|1>&swap_thermistors=<0|1>` — update any subset.
