@@ -88,6 +88,12 @@ Defense-in-depth — see [`SAFETY.md`](SAFETY.md) for the full model.
   independent of mode, so it filters even while idle. AUTO heat engagement is
   separate and uses the active print's filament zone. (Off-by-default diverges from
   stock; see [`OEM_PARITY.md`](OEM_PARITY.md).)
+- **Thermistor mapping** — `swap_thermistors` (default off) exchanges the chamber
+  and PTC ADC inputs for boards with those sensor connectors crossed. It swaps
+  the complete logical readings, including status, calibration offsets, and
+  chamber/PTC safety roles. The selection is saved immediately but activated
+  only at boot; reboot after changing it. Use only after confirming the channels
+  are crossed.
 
 Exposed via `GET`/`POST /settings` and the web UI's Settings cards. The fixed
 over-temp cutoffs are not settable.
