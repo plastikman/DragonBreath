@@ -13,14 +13,17 @@
 #include "esp_err.h"
 #include "pb_ntc.h"
 #include "pb_buttons.h"
+#include "dc_source.h"
 
 #define PB_POLICY_REVISION_ANY UINT32_MAX
 #define PB_POLICY_LEASE_ID_LEN 32
 #define PB_POLICY_OWNER_LEN    31
 
-// Remote POWER_ON leases follow pb_heater's runtime-configurable comms deadman,
-// so the advertised lease runway and the hardware watchdog cannot disagree.
-#define PB_POLICY_LOCAL_POWER_MAX_MS  (12U * 60U * 60U * 1000U)
+// Local POWER_ON is capped at 24 h; legacy single-press local control defaults
+// to 12 h. Unbound front-panel On uses 6 h per tap, up to this maximum.
+#define PB_POLICY_LOCAL_POWER_MAX_MS      (24U * 60U * 60U * 1000U)
+#define PB_POLICY_LOCAL_POWER_DEFAULT_MS  (12U * 60U * 60U * 1000U)
+#define PB_POLICY_ON_BUTTON_CLICK_MS     700U
 
 typedef enum {
     PB_MODE_OFF = 0,
@@ -115,6 +118,10 @@ typedef struct {
 
 esp_err_t pb_policy_init(void);
 
+// Cache the persisted controller selection at boot. It only changes after the
+// setup UI requests a restart, so policy/button paths need no NVS reads.
+void pb_policy_set_control_source(dc_ctl_source_t source);
+
 // Load the remembered mode parameters from NVS (namespace app_nvs) and start the
 // persistence worker.  MUST be called AFTER nvs_init() -- pb_policy_init() only
 // installs conservative defaults, since NVS is not up that early.  Values are
@@ -138,6 +145,11 @@ pb_policy_result_t pb_policy_set_power_on(
     const char *owner,
     uint32_t expected_revision,
     pb_policy_lease_t *lease_out);
+
+// Front-panel On selection for an unbound device. Duration is restricted to
+// the supported 6-hour steps (6, 12, 18, or 24 hours).
+pb_policy_result_t pb_policy_set_button_power_on(
+    float target_c, uint8_t hours, uint32_t expected_revision);
 
 pb_policy_result_t pb_policy_set_auto(
     float target_c,

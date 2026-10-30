@@ -126,7 +126,7 @@ without touching the firmware.
 | Network core: `dc_wifi` / `dc_evlog` / `dc_moonraker` | ✅ Consumed from pinned [`dragon-core`](https://github.com/justinh-rahb/dragon-core) components (derived in part from OpenVent, MIT — see [VENDORING.md](VENDORING.md)); WiFi + Moonraker validated on hardware |
 | Portal / status dashboard | ✅ Captive provisioning + v2 dashboard (manual / auto / dry / advanced cards, SSE-driven) |
 | Status LEDs (`pb_leds`) | ✅ All four driven from policy: Power = device-alive/fault, On/Auto/Dry = active mode (Auto slow-blinks when armed but waiting). |
-| Front-panel buttons (`pb_buttons`) | ✅ All four polled with debounce + short/long-press; short toggles the labeled mode, 2 s long-press = panic-off (Power-long while faulted = fault clear). Real-Panda + devboard-HIL benches passed. |
+| Front-panel buttons (`pb_buttons`) | ✅ All four polled with debounce + short/long-press; unbound On selects 6/12/18/24 h with 1–4 taps and matching LED flashes, while bound devices retain the existing On action. 2 s long-press = panic-off (Power-long while faulted = fault clear). |
 | HTTP control API (`pb_httpd`) | ✅ API v2 (JSON command/state + SSE, CSRF-gated) — shipped in v0.3.0 |
 | Klipper-side helper (M141 / Fluidd) | ✅ [dragonbreath-klipper](https://github.com/plastikman/dragonbreath-klipper): `[heater_generic dragonbreath]` (M141/M191) + `[output_pin dragonbreath_filter]` (fan-only filtration toggle); API v2, deploy lockstep with the firmware |
 | Filament-dry mode | ✅ Timed dry with material presets; validated end-to-end on hardware |

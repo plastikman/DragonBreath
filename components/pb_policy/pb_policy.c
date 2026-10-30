@@ -62,6 +62,7 @@ static const char *TAG = "pb_policy";
 typedef struct {
     pb_mode_t mode;
     db_source_t source;
+    dc_ctl_source_t control_source;
     uint32_t revision;
 
     // #72: one-off manual-override memory (RAM-only, never persisted, not in the
@@ -91,6 +92,8 @@ typedef struct {
 
     int64_t drying_deadline_us;
     int64_t local_power_deadline_us;
+    uint8_t on_button_click_count;
+    int64_t on_button_click_deadline_us;
 
     bool lease_active;
     pb_policy_lease_t lease;
@@ -143,6 +146,12 @@ static void revision_advance_locked(db_source_t source)
     s.source = source;
 }
 
+static void cancel_on_button_selection_locked(void)
+{
+    s.on_button_click_count = 0;
+    s.on_button_click_deadline_us = 0;
+}
+
 static void lease_invalidate_locked(void)
 {
     s.lease_active = false;
@@ -193,6 +202,7 @@ static pb_policy_result_t heat_precheck_locked(float target_c,
 
 static void set_off_locked(db_source_t source)
 {
+    cancel_on_button_selection_locked();
     // Target zero is accepted even while faulted/inhibited.
     (void)pb_heater_set_target_c(0.0f);
     s.mode = PB_MODE_OFF;
@@ -441,6 +451,7 @@ esp_err_t pb_policy_init(void)
     memset(&s, 0, sizeof s);
     s.mode = PB_MODE_OFF;
     s.source = DB_SOURCE_BOOT;
+    s.control_source = DC_SRC_KLIPPER;
     s.revision = 1;
     s.auto_bed_threshold_c = PB_DEFAULT_AUTO_BED_C;
     s.last_faulted = pb_heater_is_faulted();
@@ -455,17 +466,34 @@ esp_err_t pb_policy_init(void)
     return ESP_OK;
 }
 
-pb_policy_result_t pb_policy_set_power_on(
+void pb_policy_set_control_source(dc_ctl_source_t source)
+{
+    if (!s_lock || (unsigned)source >= DC_SRC_MAX) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s.control_source = source;
+    xSemaphoreGive(s_lock);
+}
+
+static pb_policy_result_t set_power_on(
     float target_c,
     db_source_t source,
     const char *owner,
     uint32_t expected_revision,
-    pb_policy_lease_t *lease_out)
+    pb_policy_lease_t *lease_out,
+    uint32_t local_duration_ms,
+    bool require_unbound)
 {
     if (!s_lock) return PB_POLICY_INHIBITED;
     if (lease_out) memset(lease_out, 0, sizeof *lease_out);
+    if (!source_is_remote(source) &&
+        (local_duration_ms == 0 || local_duration_ms > PB_POLICY_LOCAL_POWER_MAX_MS))
+        return PB_POLICY_INVALID;
 
     xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (require_unbound && s.control_source != DC_SRC_NONE) {
+        xSemaphoreGive(s_lock);
+        return PB_POLICY_BUSY;
+    }
     pb_policy_result_t r = heat_precheck_locked(target_c, expected_revision);
     if (r != PB_POLICY_OK) {
         xSemaphoreGive(s_lock);
@@ -486,8 +514,10 @@ pb_policy_result_t pb_policy_set_power_on(
     // to revert to.
     pb_mode_t prev_mode = s.mode;
     lease_invalidate_locked();
+    cancel_on_button_selection_locked();
     s.mode = PB_MODE_POWER_ON;
-    s.resume_mode = (prev_mode == PB_MODE_AUTO) ? PB_MODE_AUTO : PB_MODE_OFF;
+    s.resume_mode = (prev_mode == PB_MODE_POWER_ON) ? s.resume_mode
+        : (prev_mode == PB_MODE_AUTO) ? PB_MODE_AUTO : PB_MODE_OFF;
     s.requested_target_c = pb_heater_get_target_c(); // includes heater clamp
     s.auto_engaged = false;
     s.drying_deadline_us = 0;
@@ -498,7 +528,7 @@ pb_policy_result_t pb_policy_set_power_on(
         pb_heater_notify_link_alive();
     } else {
         s.local_power_deadline_us =
-            now + (int64_t)PB_POLICY_LOCAL_POWER_MAX_MS * 1000;
+            now + (int64_t)local_duration_ms * 1000;
     }
     revision_advance_locked(source);
     s.params.manual_target_c = s.requested_target_c;   // post-clamp
@@ -507,6 +537,27 @@ pb_policy_result_t pb_policy_set_power_on(
     wake_control_task();
     params_notify();
     return PB_POLICY_OK;
+}
+
+pb_policy_result_t pb_policy_set_power_on(
+    float target_c,
+    db_source_t source,
+    const char *owner,
+    uint32_t expected_revision,
+    pb_policy_lease_t *lease_out)
+{
+    return set_power_on(target_c, source, owner, expected_revision, lease_out,
+                        PB_POLICY_LOCAL_POWER_DEFAULT_MS, false);
+}
+
+pb_policy_result_t pb_policy_set_button_power_on(
+    float target_c, uint8_t hours, uint32_t expected_revision)
+{
+    if (hours < 6 || hours > 24 || hours % 6 != 0)
+        return PB_POLICY_INVALID;
+    return set_power_on(target_c, DB_SOURCE_BUTTON, "button",
+                        expected_revision, NULL,
+                        (uint32_t)hours * 60U * 60U * 1000U, true);
 }
 
 pb_policy_result_t pb_policy_set_auto(
@@ -526,6 +577,7 @@ pb_policy_result_t pb_policy_set_auto(
         return r;
     }
     lease_invalidate_locked();
+    cancel_on_button_selection_locked();
     s.mode = PB_MODE_AUTO;
     s.resume_mode = PB_MODE_OFF;   // #72: an explicit AUTO command is not an override
     float max_target_c = pb_heater_get_max_target_c();
@@ -570,6 +622,7 @@ pb_policy_result_t pb_policy_start_drying(
         return r;
     }
     lease_invalidate_locked();
+    cancel_on_button_selection_locked();
     s.mode = PB_MODE_DRYING;
     s.resume_mode = PB_MODE_OFF;   // #72: drying is not resumable; no revert to AUTO
     s.requested_target_c = pb_heater_get_target_c();
@@ -841,6 +894,31 @@ void pb_policy_on_button(pb_button_id_t id, pb_button_event_t ev)
 {
     if (!s_lock) return;
 
+    // With no selected controller, On-button taps select a local run length.
+    // Buffer them until the short multi-click window closes; bound devices keep
+    // the existing immediate single-press behavior.
+    if (id == PB_BUTTON_ON && ev == PB_BUTTON_SHORT) {
+        int64_t now = esp_timer_get_time();
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        bool unbound = s.control_source == DC_SRC_NONE;
+        if (unbound) {
+            if (s.on_button_click_count == 0 ||
+                now >= s.on_button_click_deadline_us)
+                s.on_button_click_count = 0;
+            if (s.on_button_click_count < 4) s.on_button_click_count++;
+            s.on_button_click_deadline_us =
+                now + (int64_t)PB_POLICY_ON_BUTTON_CLICK_MS * 1000;
+        }
+        xSemaphoreGive(s_lock);
+        if (unbound) return;
+    }
+
+    // Any other panel action supersedes a pending delayed heater command. In
+    // particular, Power must never be followed by a stale click selection.
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    cancel_on_button_selection_locked();
+    xSemaphoreGive(s_lock);
+
     if (ev == PB_BUTTON_LONG) {
         // Power long-press while faulted: attempt a recovery clear instead of a
         // redundant panic. Any other long-press latches panic-off.
@@ -939,6 +1017,8 @@ void pb_policy_tick(void)
 {
     if (!s_lock) return;
     int64_t now = esp_timer_get_time();
+    uint8_t on_button_clicks = 0;
+    uint32_t on_button_click_revision = PB_POLICY_REVISION_ANY;
     bool watchdog_trip = false;
     bool local_limit_expired = false;
     const char *watchdog_reason = NULL;
@@ -946,6 +1026,13 @@ void pb_policy_tick(void)
     bool autonomous = false;
 
     xSemaphoreTake(s_lock, portMAX_DELAY);
+    bool source_unbound = s.control_source == DC_SRC_NONE;
+    if (s.on_button_click_count != 0 && now >= s.on_button_click_deadline_us) {
+        if (source_unbound) {
+            on_button_clicks = s.on_button_click_count;
+        }
+        cancel_on_button_selection_locked();
+    }
     switch (s.mode) {
         case PB_MODE_POWER_ON:
             if (s.lease_active && now >= s.lease_deadline_us) {
@@ -1113,7 +1200,8 @@ void pb_policy_tick(void)
     // mode=OFF above, so the mode LEDs go dark on their own.
     // Power is release-only: GPIO21 is also the console TX pin (CONFIG_PB_POWER_LED).
     pb_leds_set(PB_LED_POWER, faulted ? PB_LED_BLINK : PB_LED_SOLID);
-    pb_leds_set(PB_LED_ON, s.mode == PB_MODE_POWER_ON ? PB_LED_SOLID : PB_LED_OFF);
+    if (pb_leds_get(PB_LED_ON) != PB_LED_CODE_ONCE)
+        pb_leds_set(PB_LED_ON, s.mode == PB_MODE_POWER_ON ? PB_LED_SOLID : PB_LED_OFF);
     // AUTO distinguishes armed-but-waiting (no Moonraker link, or bed below the
     // threshold) from actually driving heat — the most useful thing the panel says.
     pb_leds_set(PB_LED_AUTO,
@@ -1124,7 +1212,24 @@ void pb_policy_tick(void)
 
     if (local_limit_expired)
         ESP_LOGW(TAG, "local POWER_ON limit expired; mode set OFF");
+    if (on_button_clicks != 0)
+        on_button_click_revision = s.revision;
     xSemaphoreGive(s_lock);
+
+    if (on_button_clicks != 0) {
+        pb_policy_params_t params;
+        pb_policy_get_params(&params);
+        uint8_t hours = (uint8_t)(on_button_clicks * 6);
+        pb_policy_result_t r = pb_policy_set_button_power_on(
+            params.manual_target_c, hours, on_button_click_revision);
+        if (r == PB_POLICY_OK) {
+            pb_leds_set_code_once(PB_LED_ON, on_button_clicks);
+            dc_evlog_add("btn: on %ux -> %u h", on_button_clicks, hours);
+        } else {
+            dc_evlog_add("btn: on %ux rejected (%s)", on_button_clicks,
+                         pb_policy_result_str(r));
+        }
+    }
 }
 
 void pb_policy_get_snapshot(pb_policy_snapshot_t *out)

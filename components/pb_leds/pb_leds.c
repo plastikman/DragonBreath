@@ -47,6 +47,7 @@ static const gpio_num_t s_gpio[PB_LED_COUNT] = {
 // can set them without a lock. All sequencing/phase lives in the driver task.
 static _Atomic pb_led_pattern_t s_pat[PB_LED_COUNT];
 static _Atomic unsigned         s_code[PB_LED_COUNT];
+static _Atomic unsigned         s_code_generation[PB_LED_COUNT];
 static TaskHandle_t             s_task;
 
 static void led_task(void *arg)
@@ -55,11 +56,18 @@ static void led_task(void *arg)
     uint32_t tick = 0;
     // Per-LED CODE sequencer phase (task-local — never touched by setters).
     struct { unsigned pulse; unsigned sub; } cs[PB_LED_COUNT] = {0};
+    unsigned seen_code_generation[PB_LED_COUNT] = {0};
 
     for (;;) {
         for (int i = 0; i < PB_LED_COUNT; i++) {
             if (!PB_LED_DRIVEN(i)) continue;   // GPIO21 left as console TX
             pb_led_pattern_t p = atomic_load(&s_pat[i]);
+            unsigned generation = atomic_load(&s_code_generation[i]);
+            if (generation != seen_code_generation[i]) {
+                cs[i].pulse = 0;
+                cs[i].sub = 0;
+                seen_code_generation[i] = generation;
+            }
             int on = 0;
             switch (p) {
             case PB_LED_SOLID:
@@ -71,7 +79,9 @@ static void led_task(void *arg)
             case PB_LED_BLINK_SLOW:
                 on = ((tick / BLINK_SLOW_TICKS) & 1u) == 0;
                 break;
-            case PB_LED_CODE: {
+            case PB_LED_CODE:
+            case PB_LED_CODE_ONCE: {
+                bool once = p == PB_LED_CODE_ONCE;
                 unsigned n = atomic_load(&s_code[i]);
                 if (n == 0) { on = 0; cs[i].pulse = 0; cs[i].sub = 0; break; }
                 if (cs[i].pulse < n) {                       // inside the burst
@@ -85,6 +95,7 @@ static void led_task(void *arg)
                     if (++cs[i].sub >= CODE_GAP_TICKS) {
                         cs[i].sub = 0;
                         cs[i].pulse = 0;
+                        if (once) atomic_store(&s_pat[i], PB_LED_OFF);
                     }
                 }
                 break;
@@ -152,6 +163,7 @@ esp_err_t pb_leds_start(void)
     for (int i = 0; i < PB_LED_COUNT; i++) {
         atomic_store(&s_pat[i], PB_LED_OFF);
         atomic_store(&s_code[i], 0);
+        atomic_store(&s_code_generation[i], 0);
 #ifndef CONFIG_PB_DEVBOARD_SAFE
         if (PB_LED_DRIVEN(i)) gpio_set_level(s_gpio[i], 0);
 #endif
@@ -179,7 +191,16 @@ void pb_leds_set_code(pb_led_id_t id, uint8_t pulses)
 {
     if (id < 0 || id >= PB_LED_COUNT) return;
     atomic_store(&s_code[id], pulses);
+    atomic_fetch_add(&s_code_generation[id], 1);
     atomic_store(&s_pat[id], PB_LED_CODE);
+}
+
+void pb_leds_set_code_once(pb_led_id_t id, uint8_t pulses)
+{
+    if (id < 0 || id >= PB_LED_COUNT) return;
+    atomic_store(&s_code[id], pulses);
+    atomic_fetch_add(&s_code_generation[id], 1);
+    atomic_store(&s_pat[id], PB_LED_CODE_ONCE);
 }
 
 pb_led_pattern_t pb_leds_get(pb_led_id_t id)
