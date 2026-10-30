@@ -17,7 +17,7 @@ heat after a reboot.
 |---|---|---|
 | **Off** | Heater off. | Boot default; `off` command (always accepted). |
 | **Manual / Power-On** | Holds the chamber at a set target. Remote sessions take a device-issued lease and must heartbeat to stay alive. | `power_on` command (web "Manual heat", or Klipper `M141`/`M191`/`SET_HEATER_TEMPERATURE`). |
-| **Automatic** | For filament-aware Klipper and Bambu sources, follows the active print's configured filament-zone target. For bed-only PrusaLink, heats to the configured target when the bed setpoint reaches its threshold. Waits with heat off if the source or required profile data is unavailable. | `auto` command / dashboard Auto control / front-panel Auto button. |
+| **Automatic** | For the filament-aware Klipper, Bambu, and PrusaLink sources, follows the active print's configured filament-zone target. Waits with heat off if the source, material, or required profile data is unavailable. | `auto` command / dashboard Auto control / front-panel Auto button. |
 | **Filament drying** | Holds the chamber at a target for a bounded duration (1–12 h), then auto-off. Material presets pre-fill target + duration. | `drying_start` / web "Filament drying". |
 | **Fan-only filtration** | Runs the chamber blower with **no heat** to filter/circulate air. Two paths: (a) the automatic **standing band** — the blower runs alone whenever `filter_auto` is enabled (**off by default**) + the source is connected + the bed **setpoint** reaches `filter_temp` (default 30 °C), independent of mode (even while idle); (b) a mode-independent manual toggle. Enabling manual filtration is idle-only (rejected while heating/cooling); turning it off always works. | `filter` command / web "Filtration" button; standing band via `filter_temp`/`filter_auto`. |
 
@@ -86,9 +86,8 @@ Defense-in-depth — see [`SAFETY.md`](SAFETY.md) for the full model.
   **standing** band (stock-shaped): once enabled, whenever Moonraker is connected the
   blower runs alone once the print's bed **setpoint** reaches `filter_temp` —
   independent of mode, so it filters even while idle. AUTO heat engagement is
-  separate and uses either the active filament zone or, for a bed-follow source,
-  its configured bed threshold. (Off-by-default diverges from stock; see
-  [`OEM_PARITY.md`](OEM_PARITY.md).)
+  separate and uses the active print's filament zone. (Off-by-default diverges from
+  stock; see [`OEM_PARITY.md`](OEM_PARITY.md).)
 
 Exposed via `GET`/`POST /settings` and the web UI's Settings cards. The fixed
 over-temp cutoffs are not settable.

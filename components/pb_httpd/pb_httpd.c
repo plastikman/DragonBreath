@@ -7,6 +7,7 @@
 #include "dc_source.h"
 #include "dc_bambu.h"
 #include "dc_moonraker.h"
+#include "dc_prusa.h"
 #include "dc_evlog.h"
 
 #include "esp_http_server.h"
@@ -208,6 +209,13 @@ static cJSON *state_json(const pb_policy_snapshot_t *s)
         dc_moonraker_status_t ms;
         if (dc_moonraker_get_status(&ms) == ESP_OK && ms.material[0])
             cJSON_AddStringToObject(environment, "material", ms.material);
+    } else if (ctl_src == DC_SRC_PRUSA) {
+        // PrusaLink's loaded filament (set only while a print is active), same
+        // "material" field as Klipper so the dashboard shows "Filament: PETG"
+        // and which zone AUTO follows.
+        dc_prusa_status_t ps;
+        if (dc_prusa_get_status(&ps) == ESP_OK && ps.material[0])
+            cJSON_AddStringToObject(environment, "material", ps.material);
     }
     cJSON_AddBoolToObject(environment, "moonraker_connected", s->moonraker_connected);
     add_num1(environment, "bed_temperature_c", s->bed_c);
@@ -943,9 +951,9 @@ static esp_err_t calibration_post(httpd_req_t *req)
 }
 
 // --- Filament chamber zones (Bambu) GET/POST /api/v2/zones ------------------
-// The filament -> chamber-target map used by the Bambu heating-zones feature. GET is
+// The filament -> chamber-target map used by the heating-zones feature. GET is
 // read-only/open; POST is auth-gated and applies live (no reboot). Values 0..max C,
-// 0 = no zone. Klipper drives the chamber via M141/M191 instead, so this is Bambu-only.
+// 0 = no zone. Shared by every filament-aware source (Bambu, Klipper, Prusa).
 static esp_err_t zones_send(httpd_req_t *req)
 {
     cJSON *o = cJSON_CreateObject();

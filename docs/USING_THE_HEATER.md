@@ -154,6 +154,18 @@ Also re-assert the bed after plate detection (`M140 S{bed_temperature_initial_la
 right after `DETECT_BED_PLATE`) — the stock detection sequence zeroes the top `M140`,
 so without this the bed sits cold through warm-up and doesn't help the chamber.
 
+If you want help editing the start sequence, use the [DragonBreath Start G-code
+Helper](https://plastikman.github.io/DragonBreath/). It adds `M141` after `M140`,
+then runs the auxiliary fan at 70% (`M106 P2 S178`) around `M191` after the
+`G0 Z5` that follows `M190`, turns that fan off with `M107 P2`, and comments out
+an active `WAIT_CHAMBER_TEMP` in the startup section. The helper uses the chamber
+target variable by default and processes the file locally in your browser.
+
+Use only the original, unmodified slicer start G-code. The helper checks for its
+chamber-command markers, but cannot prove that the rest of a file is unchanged;
+review its preview before using the result. Confirm that `P2` is the auxiliary
+circulation fan on your printer before using this sequence.
+
 > **Don't confuse this with Orca's *injected* `M191`.** If the **filament preset**'s
 > "Activate temperature control" is on, Orca injects its own blocking `M191` at the very
 > top of the file, before `PRINT_START` — that one fights the sequence (and on the U1

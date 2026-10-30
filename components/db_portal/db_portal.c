@@ -321,10 +321,10 @@ static cJSON *describe_product(void *ctx)
     s = section(root, "Prusa (PrusaLink)");   // no discovery: PrusaLink has no SSDP scan
     visible_when(s, "ctl_src", "5");
     cJSON_AddStringToObject(s, "description",
-        "Bed-follow: DragonBreath polls the printer's PrusaLink API and, in AUTO, heats the "
-        "chamber once the printer's bed setpoint reaches your threshold (PrusaLink reports no "
-        "filament type). Set the bed threshold and chamber target on the dashboard's Auto "
-        "card. The API key is the printer's PrusaLink password.");
+        "Filament-follow: DragonBreath polls the printer's PrusaLink API and, in AUTO, heats "
+        "the chamber to the loaded filament's zone while a print runs. Set the per-filament "
+        "targets in Filament Zones on the dashboard. The API key is the printer's PrusaLink "
+        "password.");
     add_field(s, field("pr_host", "Printer host", "text", pr.host, false));
     add_field(s, field("pr_key", "API key / PrusaLink password (leave blank to keep)", "password", "", true));
 

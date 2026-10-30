@@ -166,9 +166,8 @@ cutoff.
 `environment.auto_filtering` is `true` while the fan-only filtration band is driving
 the blower — whenever `filter_auto` is enabled, Moonraker is connected, and the bed
 **setpoint** is at/above `filter_temp_c`. This is a **standing** band, independent of
-mode (it runs even while idle). AUTO heat engagement is separate: filament-aware
-sources use the active filament-zone target, while bed-follow sources use their
-configured target and bed threshold.
+mode (it runs even while idle). AUTO heat engagement is separate: every source
+(Klipper, Bambu, PrusaLink) uses the active print's filament-zone target.
 
 `params` reports the *remembered* mode parameters — the values most recently
 accepted for each mode, used to pre-fill the UI and to re-arm a mode when the
