@@ -269,7 +269,8 @@ These predate/sit beside the versioned control surface and are stable:
   `{"max","max_min","max_abs","comms_ms","comms_ms_min","comms_ms_max",`
   `"cool_release","cool_release_min","cool_release_max",`
   `"fb_cut","fb_cut_default","fb_cut_min","fb_cut_max",`
-  `"filter_temp","filter_temp_min","filter_temp_max","filter_auto","leds_enabled"}`.
+  `"filter_temp","filter_temp_min","filter_temp_max","filter_auto","leds_enabled",`
+  `"swap_thermistors","swap_thermistors_active"}`.
   Open (read-only, no side effects). `cool_release` is the cooldown-fan "cool down
   to" temperature (30–65 °C, default 40). `fb_cut` is the element-foldback cut
   (90–104 °C; `0` = auto → the per-Rref `fb_cut_default`). `filter_temp` (20–60 °C,
@@ -277,13 +278,19 @@ These predate/sit beside the versioned control surface and are stable:
   filtration band (standing — runs whenever enabled + Moonraker connected + bed
   setpoint ≥ `filter_temp`, independent of mode).
   `leds_enabled` is the status-LED master enable (bool, default `true`).
-- `POST /settings?max=<°C>&comms_ms=<ms>&cool_release=<°C>&fb_cut=<°C>&filter_temp=<°C>&filter_auto=<0|1>&leds_enabled=<0|1>` — update any subset.
+- `swap_thermistors` is the requested chamber/PTC input mapping for crossed JST
+  connector assignments (bool, default
+  `false`); `swap_thermistors_active` reports the mapping latched at boot. A
+  changed selection is saved but requires a reboot to take effect.
+- `POST /settings?max=<°C>&comms_ms=<ms>&cool_release=<°C>&fb_cut=<°C>&filter_temp=<°C>&filter_auto=<0|1>&leds_enabled=<0|1>&swap_thermistors=<0|1>` — update any subset.
   Auth-gated (`X-DragonBreath-Auth`). Safety values are clamped to the safe
   envelope server-side (the max-target ceiling can never exceed the absolute cap,
   the comms watchdog stays within its min/max) and the clamped effective values
   are echoed back. `leds_enabled=0` turns the four front-panel LEDs off (monitoring
   and safety are unaffected). The fixed 105 °C PTC / 85 °C chamber cutoffs are
   **not** settable.
+  `swap_thermistors` exchanges the two logical sensor inputs and their cutoff
+  roles; a changed mapping is applied after reboot.
 - `GET /api/v2/calibration` — the per-channel temperature calibration offsets plus
   their bounds and the live readings:
   `{"api_version":2,"chamber_offset_c","ptc_offset_c","min":-5,"max":5,"chamber_c","ptc_c","chamber_raw_c","ptc_raw_c"}`.

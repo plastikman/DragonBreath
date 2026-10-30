@@ -61,6 +61,17 @@ sensor-fault fail-closed logic (which is raw-count based). Calibration therefore
 thermal cutoff + Layer-2 PTC self-limit remain the true emergency layer regardless
 of any offset.
 
+## Thermistor channel mapping
+`swap_thermistors` is an opt-in setting for the uncommon case where the chamber
+and PTC sensor connectors are plugged into each other's JST sockets on the board.
+It swaps the complete logical
+channels, so the 85 °C chamber cutoff, 105 °C PTC cutoff, fault status, and
+per-channel calibration follow the selected sensor roles. The choice is staged
+in NVS and takes effect only after reboot; the live mapping cannot change while
+the control loop is running. Leave it off unless crossed channels are confirmed,
+and verify both readings on `/diag` before enabling heat. Reversing the two leads
+of a single two-wire thermistor does not require this option.
+
 ## Front-panel panic-off (long-press)
 Holding **any** front-panel button for 2 s latches the heater off and drops the
 mode to OFF. It is called **panic-off**, deliberately, and is **not** a

@@ -4,6 +4,7 @@
 #include "pb_board.h"
 
 #include <math.h>
+#include <stdbool.h>
 #include <string.h>
 #include <stdatomic.h>
 #include "esp_log.h"
@@ -28,10 +29,18 @@ static const char *TAG = "pb_ntc";
 #define PB_NTC_NVS_NS       "app_nvs"
 #define PB_NTC_KEY_OFF_CH   "ntc_off_ch"    // i32 centi-°C, chamber
 #define PB_NTC_KEY_OFF_PTC  "ntc_off_ptc"   // i32 centi-°C, PTC
+#define PB_NTC_KEY_SWAP     "ntc_swap"      // u8 bool, exchange the chamber/PTC JST input channels
 // PB_NTC_OFFSET_CENTI_MAX + pb_ntc_clamp_offset_centi() live in pb_ntc.h so the
 // loader, the setter and the host test all share one bound / one clamp.
 
 static _Atomic int s_offset_centi[2];       // [PB_NTC_CHAMBER], [PB_NTC_PTC]
+static _Atomic bool s_swap_configured;      // requested/persisted choice shown in Settings
+static _Atomic bool s_swap_active;          // boot-latched choice used by the sensor read path
+
+static int ntc_source_index(pb_ntc_channel_t ch)
+{
+    return atomic_load(&s_swap_active) ? 1 - (int)ch : (int)ch;
+}
 
 static float ntc_offset_c(pb_ntc_channel_t ch)
 {
@@ -42,11 +51,13 @@ static float ntc_offset_c(pb_ntc_channel_t ch)
 void pb_ntc_load_calibration(void)
 {
     int32_t ch_centi = 0, ptc_centi = 0;
+    uint8_t swap = 0;
     nvs_handle_t h;
     if (nvs_open(PB_NTC_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
         int32_t v;
         if (nvs_get_i32(h, PB_NTC_KEY_OFF_CH,  &v) == ESP_OK) ch_centi  = v;
         if (nvs_get_i32(h, PB_NTC_KEY_OFF_PTC, &v) == ESP_OK) ptc_centi = v;
+        (void)nvs_get_u8(h, PB_NTC_KEY_SWAP, &swap);
         nvs_close(h);
     }
     // Clamp on load through the SAME shared clamp as the setter: a corrupt /
@@ -55,8 +66,40 @@ void pb_ntc_load_calibration(void)
     ptc_centi = pb_ntc_clamp_offset_centi((int)ptc_centi);
     atomic_store(&s_offset_centi[PB_NTC_CHAMBER], (int)ch_centi);
     atomic_store(&s_offset_centi[PB_NTC_PTC],     (int)ptc_centi);
+    atomic_store(&s_swap_configured, swap != 0);
+    atomic_store(&s_swap_active, swap != 0);
     ESP_LOGI(TAG, "calibration loaded: chamber=%+.2fC ptc=%+.2fC",
              ch_centi / 100.0, ptc_centi / 100.0);
+    ESP_LOGI(TAG, "thermistor channel mapping: %s",
+             swap ? "swapped" : "normal");
+}
+
+bool pb_ntc_get_swap_thermistors(void)
+{
+    return atomic_load(&s_swap_configured);
+}
+
+bool pb_ntc_get_swap_thermistors_active(void)
+{
+    return atomic_load(&s_swap_active);
+}
+
+esp_err_t pb_ntc_set_swap_thermistors(bool swap)
+{
+    // Persist the requested selection but leave the live ADC mapping unchanged.
+    // The control task can therefore never see its sensor identities change
+    // while heating; app_main latches the new mapping before starting that task.
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(PB_NTC_NVS_NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(h, PB_NTC_KEY_SWAP, swap ? 1 : 0);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    if (err != ESP_OK) return err;
+    atomic_store(&s_swap_configured, swap);
+    ESP_LOGI(TAG, "thermistor mapping set to %s (reboot required)",
+             swap ? "swapped" : "normal");
+    return ESP_OK;
 }
 
 esp_err_t pb_ntc_set_offset_c(pb_ntc_channel_t ch, float offset_c)
@@ -134,9 +177,10 @@ pb_ntc_status_t pb_ntc_read(pb_ntc_channel_t ch, float *out_c)
         if (out_c) *out_c = NAN;
         return PB_NTC_UNINIT;
     }
+    int source = ntc_source_index(ch);
     taskENTER_CRITICAL(&s_hil_mux);
-    pb_ntc_status_t status = s_hil_status[ch];
-    float temp_c = status == PB_NTC_OK ? s_hil_temp[ch] : NAN;
+    pb_ntc_status_t status = s_hil_status[source];
+    float temp_c = status == PB_NTC_OK ? s_hil_temp[source] : NAN;
     s_last_status[ch] = status;
     taskEXIT_CRITICAL(&s_hil_mux);
     if (status == PB_NTC_OK) temp_c += ntc_offset_c(ch);   // apply calibration
@@ -156,8 +200,9 @@ pb_ntc_status_t pb_ntc_last_status(pb_ntc_channel_t ch)
 float pb_ntc_smoothed_c(pb_ntc_channel_t ch)
 {
     if (!s_ready || ch < PB_NTC_CHAMBER || ch > PB_NTC_PTC) return NAN;
+    int source = ntc_source_index(ch);
     taskENTER_CRITICAL(&s_hil_mux);
-    float temp_c = s_hil_status[ch] == PB_NTC_OK ? s_hil_temp[ch] : NAN;
+    float temp_c = s_hil_status[source] == PB_NTC_OK ? s_hil_temp[source] : NAN;
     taskEXIT_CRITICAL(&s_hil_mux);
     if (isfinite(temp_c)) temp_c += ntc_offset_c(ch);   // apply calibration
     return temp_c;
@@ -291,15 +336,20 @@ int pb_ntc_rref_kohm(void) { return s_rref_kohm; }
 // latched for pb_ntc_last_status().
 pb_ntc_status_t pb_ntc_read(pb_ntc_channel_t ch, float *out_c)
 {
+    if (ch < PB_NTC_CHAMBER || ch > PB_NTC_PTC) {
+        if (out_c) *out_c = NAN;
+        return PB_NTC_UNINIT;
+    }
+    int source = ntc_source_index(ch);
     pb_ntc_status_t st = PB_NTC_UNINIT;
     float t = NAN;
 
     do {
         if (!s_ready) { st = PB_NTC_UNINIT; break; }
         int raw = 0;
-        if (adc_oneshot_read(s_adc, s_chan[ch], &raw) != ESP_OK) { st = PB_NTC_UNINIT; break; }
+        if (adc_oneshot_read(s_adc, s_chan[source], &raw) != ESP_OK) { st = PB_NTC_UNINIT; break; }
         int mv = 0;
-        if (adc_cali_raw_to_voltage(s_cali[ch], raw, &mv) != ESP_OK) { st = PB_NTC_UNINIT; break; }
+        if (adc_cali_raw_to_voltage(s_cali[source], raw, &mv) != ESP_OK) { st = PB_NTC_UNINIT; break; }
         float v = (float)mv / 1000.0f;               // volts at the pin
         st = pb_ntc_classify(raw, v);                // shared open/short/rail ladder
         if (st != PB_NTC_OK) break;

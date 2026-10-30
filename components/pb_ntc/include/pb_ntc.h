@@ -9,6 +9,7 @@
 // "Vrail = 0.1 V" was wrong; hardware confirmed ~3.3 V — see PB_VSUPPLY_V in the .c.)
 #pragma once
 
+#include <stdbool.h>
 #include "esp_err.h"
 
 typedef enum {
@@ -112,6 +113,14 @@ static inline int pb_ntc_clamp_offset_centi(int centi)
 // corrupt / hand-edited / out-of-range stored value clamps — it is never applied
 // raw. Missing keys default to 0.
 void pb_ntc_load_calibration(void);
+
+// Exchange the chamber/PTC JST input channels when the two physical connectors
+// are plugged into the opposite board sockets. The selection is persisted
+// immediately, but active mapping is latched at boot, avoiding sensor-identity
+// changes under a running heater/control loop. Reboot after changing it.
+bool pb_ntc_get_swap_thermistors(void);
+bool pb_ntc_get_swap_thermistors_active(void);
+esp_err_t pb_ntc_set_swap_thermistors(bool swap);
 
 // Set a channel's calibration offset (°C). The value is clamped to
 // [-PB_NTC_OFFSET_MAX_C, +PB_NTC_OFFSET_MAX_C] and then persisted to NVS.
