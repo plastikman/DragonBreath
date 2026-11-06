@@ -5,7 +5,7 @@ root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 tmp="${TMPDIR:-/tmp}/dragonbreath-dc-pid"
 out="${TMPDIR:-/tmp}/dragonbreath-pb-heater-pid-test"
 
-# Extract both dependency origin and version from the firmware's dc_pid block.
+# Extract dependency origin, path and version from the firmware's dc_pid block.
 # Do not cross into sibling entries (including slash-containing component names).
 # Fail closed if the pin is absent, duplicated, malformed or points elsewhere.
 dc_pid_fields="$(awk '
@@ -14,13 +14,20 @@ dc_pid_fields="$(awk '
     in_pid = 1
     next
   }
-  in_pid && /^  [^[:space:]]/ { in_pid = 0 }
+  in_pid && (/^  [^[:space:]]/ || /^[^[:space:]]/) { in_pid = 0 }
   in_pid && /^[[:space:]]+git:[[:space:]]*/ {
     sub(/^[[:space:]]+git:[[:space:]]*/, "")
     sub(/[[:space:]]*#.*/, "")
     gsub(/^[[:space:]]+|[[:space:]]+$/, "")
     git = $0
     git_count++
+  }
+  in_pid && /^[[:space:]]+path:[[:space:]]*/ {
+    sub(/^[[:space:]]+path:[[:space:]]*/, "")
+    sub(/[[:space:]]*#.*/, "")
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+    path = $0
+    path_count++
   }
   in_pid && /^[[:space:]]+version:[[:space:]]*/ {
     sub(/^[[:space:]]+version:[[:space:]]*/, "")
@@ -30,8 +37,9 @@ dc_pid_fields="$(awk '
     version_count++
   }
   END {
-    if (seen != 1 || duplicate || git_count != 1 || version_count != 1) exit 1
+    if (seen != 1 || duplicate || git_count != 1 || path_count != 1 || version_count != 1) exit 1
     print git
+    print path
     print version
   }
 ' "$root/main/idf_component.yml")" || {
@@ -39,9 +47,14 @@ dc_pid_fields="$(awk '
   exit 1
 }
 dc_pid_git="$(printf '%s\n' "$dc_pid_fields" | sed -n '1p')"
-dc_pid_version="$(printf '%s\n' "$dc_pid_fields" | sed -n '2p')"
+dc_pid_path="$(printf '%s\n' "$dc_pid_fields" | sed -n '2p')"
+dc_pid_version="$(printf '%s\n' "$dc_pid_fields" | sed -n '3p')"
 if [ "$dc_pid_git" != "https://github.com/justinh-rahb/dragon-core.git" ]; then
   echo "Unexpected dc_pid Git source: $dc_pid_git" >&2
+  exit 1
+fi
+if [ "$dc_pid_path" != "components/dc_pid" ]; then
+  echo "Unexpected dc_pid component path: $dc_pid_path" >&2
   exit 1
 fi
 if ! printf '%s\n' "$dc_pid_version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
