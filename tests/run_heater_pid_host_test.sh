@@ -5,22 +5,49 @@ root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 tmp="${TMPDIR:-/tmp}/dragonbreath-dc-pid"
 out="${TMPDIR:-/tmp}/dragonbreath-pb-heater-pid-test"
 
-# Read the dc_pid pin from the same manifest that controls the firmware build.
-# Fail closed if the entry is missing or the version is not a Git tag-like value.
-dc_pid_version="$(awk '
-  /^  dc_pid:/ { in_pid = 1; next }
-  in_pid && /^  [[:alnum:]_]+:/ { exit }
+# Extract both dependency origin and version from the firmware's dc_pid block.
+# Do not cross into sibling entries (including slash-containing component names).
+# Fail closed if the pin is absent, duplicated, malformed or points elsewhere.
+dc_pid_fields="$(awk '
+  /^  dc_pid:[[:space:]]*(#.*)?$/ {
+    if (seen++) { duplicate = 1 }
+    in_pid = 1
+    next
+  }
+  in_pid && /^  [^[:space:]]/ { in_pid = 0 }
+  in_pid && /^[[:space:]]+git:[[:space:]]*/ {
+    sub(/^[[:space:]]+git:[[:space:]]*/, "")
+    sub(/[[:space:]]*#.*/, "")
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+    git = $0
+    git_count++
+  }
   in_pid && /^[[:space:]]+version:[[:space:]]*/ {
     sub(/^[[:space:]]+version:[[:space:]]*/, "")
-    gsub(/[[:space:]]/, "")
-    print
-    exit
+    sub(/[[:space:]]*#.*/, "")
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+    version = $0
+    version_count++
   }
-' "$root/main/idf_component.yml")"
-case "$dc_pid_version" in
-  v[0-9]*.[0-9]*.[0-9]*) ;;
-  *) echo "Invalid or missing dc_pid manifest pin: $dc_pid_version" >&2; exit 1 ;;
-esac
+  END {
+    if (seen != 1 || duplicate || git_count != 1 || version_count != 1) exit 1
+    print git
+    print version
+  }
+' "$root/main/idf_component.yml")" || {
+  echo "Missing or ambiguous dc_pid dependency in firmware manifest" >&2
+  exit 1
+}
+dc_pid_git="$(printf '%s\n' "$dc_pid_fields" | sed -n '1p')"
+dc_pid_version="$(printf '%s\n' "$dc_pid_fields" | sed -n '2p')"
+if [ "$dc_pid_git" != "https://github.com/justinh-rahb/dragon-core.git" ]; then
+  echo "Unexpected dc_pid Git source: $dc_pid_git" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$dc_pid_version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+  echo "Invalid dc_pid version in manifest (expected unquoted vX.Y.Z tag): $dc_pid_version" >&2
+  exit 1
+fi
 base="https://raw.githubusercontent.com/justinh-rahb/dragon-core/$dc_pid_version/components/dc_pid"
 mkdir -p "$tmp/include"
 curl -fsSL "$base/include/dc_pid.h" -o "$tmp/include/dc_pid.h"
