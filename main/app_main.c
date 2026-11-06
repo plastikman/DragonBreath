@@ -266,7 +266,7 @@ static void control_task(void *arg)
 
                         // Filament chamber zone: while a print is active,
                         // request the active filament's zone target
-                        // (0 = no zone -> normal bed-AUTO).
+                        // (0 = no valid zone; AUTO does not fall back to bed-only heating).
                         if (bs.printing)
                             src_target_c =
                                 (float)dc_bambu_zone_target(bs.filament);
@@ -316,7 +316,7 @@ static void control_task(void *arg)
                     bed_target_c = st.bed_target;
                     // Filament chamber zone, same as Bambu: while a print is active
                     // and Moonraker reports the material (gcode metadata / save_variables),
-                    // request that filament's zone target (0 = no zone -> normal bed-AUTO).
+                    // request that filament's zone target (0 = no zone; AUTO stays idle).
                     bool printing = st.printing || st.printer == DC_PRINTER_PREPARING
                                                 || st.printer == DC_PRINTER_PAUSED;
                     if (src_connected && printing && st.material[0])
