@@ -8,8 +8,8 @@
 // connect to WiFi, dial into the printer's Moonraker over WebSocket, feed printer
 // state to pb_policy.
 //
-// BRING-UP PHASE: connect + read + log printer state, but DO NOT auto-heat yet
-// (chamber target held at 0) until the heat policy is defined.
+// The product-owned pb_policy state machine decides when heating may run;
+// printer and network services provide inputs, never direct SSR commands.
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
