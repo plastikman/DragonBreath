@@ -201,12 +201,13 @@ Reverse-engineered and validated on a **V1.0.1** board (82 kΩ Rref); the **V1.0
 board (33 kΩ Rref) is confirmed in the field via a user's heat-cycle logs.
 
 ## Safety
-Two independent **hardware** over-temp backstops (a bonded thermal cutoff in the
-PTC mains lead + PTC self-limiting physics) bound the worst-case failure to
-roughly the stock firmware's ceiling — they are not defeated by a firmware bug or
-a welded SSR. This firmware adds soft cutoffs + a comms-loss watchdog on top,
-including a fixed **105 °C PTC-element cutoff** that latches a fault (and survives a
-power-cycle). Below that, a per-board **element-temperature foldback** cuts the SSR
+The PTC element's self-limiting behavior and a bonded thermal protector in the
+mains lead provide physical protection independent of firmware. Their presence
+is **not** evidence of a quantified worst-case chamber temperature: protector
+rating, tolerances and fault-condition response still require hardware verification.
+Firmware adds sensor checks, a comms-loss watchdog and fixed **software** cutoffs,
+including a **105 °C PTC-element software trip** that latches a fault (and survives
+a power-cycle). Below that, a per-board **element-temperature foldback** cuts the SSR
 with hysteresis to hold the element *under* the hard cutoff instead of tripping it —
 so a hot or poorly-insulated install keeps warming the chamber rather than falling
 into a "clear → trip again" loop. The foldback cut point is per-Rref (99 °C on
