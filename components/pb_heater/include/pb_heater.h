@@ -174,7 +174,7 @@ static inline void pb_heater_effective_foldback(float user_cut_c, int rref_kohm,
 //   ptc <  resume_c            -> allow (false)
 //   resume_c <= ptc < cut_c    -> hold the previous state (the hysteresis band)
 //   reading not OK             -> hold the previous state (a bad read is owned by the
-//                                 sensor-fault trip / hard cutoff, not by the foldback)
+//                                 sensor-fault trip / fixed software trip, not by foldback)
 static inline bool pb_heater_foldback_cut(bool ptc_ok, float ptc_c, bool prev_cut,
                                           float cut_c, float resume_c)
 {
