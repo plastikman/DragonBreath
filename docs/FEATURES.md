@@ -58,7 +58,7 @@ Defense-in-depth — see [`SAFETY.md`](SAFETY.md) for the full model.
   latches the heater off).
 - **Element foldback limiter:** below the 105 °C cutoff, the SSR is cut with
   hysteresis (per-Rref: 82 kΩ → 102 °C / 33 kΩ → 99 °C, or a user `fb_cut`
-  override 90–104 °C) so a hot element holds under the hard cutoff instead of
+  override 90–104 °C) so a hot element holds below the fixed 105 °C software trip instead of
   tripping it. Can only remove power; never exceeds 104 °C; the 105 °C cutoff is
   unaffected.
 - **Per-Rref board detection:** the thermistor reference resistor (82 kΩ V1.0.1 /
