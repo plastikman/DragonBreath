@@ -325,9 +325,8 @@ void pb_heater_request_panic_off(const char *reason);
 // clears the persisted latch in NVS. Returns:
 //   ESP_OK                - cleared (and the NVS clear committed)
 //   ESP_ERR_INVALID_STATE - a permanent inhibit is latched (not clearable)
-//   other                 - the RAM latch was cleared but persisting the clear
-//                           FAILED (so it would return on reboot); callers should
-//                           surface this (HTTP 500) rather than report success.
+//   other                 - persisting the clear FAILED; the RAM latch remains
+//                           set and callers should surface the failure (HTTP 500).
 esp_err_t pb_heater_clear_fault(void);
 
 // PERMANENT inhibit: force the heater off and refuse all heat until reboot. Unlike
