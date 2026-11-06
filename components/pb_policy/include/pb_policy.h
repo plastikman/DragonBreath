@@ -198,7 +198,7 @@ bool  pb_policy_get_filter_auto_enable(void);
 //
 // src_target_c is an optional source-requested chamber target (e.g. a Bambu filament
 // zone while a print is active): when > 0 in AUTO mode it can engage heat at that
-// target while the source is eligible and fresh, subject to helper ownership and
+// target while the source is connected, subject to helper ownership and
 // safety checks. Pass 0 when no valid source target is available; this does not
 // re-enable the old bed-threshold fallback for heating. The bed target remains
 // relevant to the separate fan-only filtration band.
