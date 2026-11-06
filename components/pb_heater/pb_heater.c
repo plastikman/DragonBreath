@@ -762,7 +762,7 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
     float commanded_duty = safety_inhibited ? 0.0f : duty;
     telemetry_set(commanded_duty, approach_limit, constraint);
 
-    // Step 5 — time-proportion normalized duty through a slow 10 s window. This is
+    // Step 5 — time-proportion normalized duty through the configured SSR window. This is
     // still plain on/off drive of a zero-cross SSR; there is no phase cutting.
     bool drive = pb_heater_pid_window_on(
         &s_pid, commanded_duty, esp_timer_get_time());
