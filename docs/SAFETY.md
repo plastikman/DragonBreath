@@ -8,11 +8,13 @@ presence does not establish a measured maximum chamber temperature or a complete
 fault-safety envelope for every installation. The firmware provides additional
 software interlocks.
 
-## Layer 1 (hardware) — bonded thermal cutoff
+## Layer 1 (hardware) — bonded thermal protector
 A cylindrical thermal protector (bimetal KSD-type disc or one-shot thermal fuse)
 is reported in series with the PTC's mains lead and bonded to the heater frame
-(maintainer inspection, photo IMG_7631). It sits upstream of the SSR, so a
-properly functioning protector can interrupt power even if the SSR fails shorted.
+(maintainer inspection referencing photo IMG_7631; the photo is not included
+in this repository). It is reportedly upstream of the SSR; if that placement
+is correct, a properly functioning protector can interrupt power even if the
+SSR fails shorted.
 Its exact part number, rated trip point, tolerances and behavior under the full
 fault envelope are not established by the firmware's temperature constants.
 
@@ -30,10 +32,11 @@ independent identification and fault-condition characterization.
   unconditional, latching check.
 - **Element foldback limiter** → below the 105 °C cutoff, the SSR is cut with
   hysteresis at a per-Rref point and held off until the element cools to a resume
-  point, so a hot/slow element holds *under* the hard cutoff instead of ratcheting
+  point, so a hot/slow element stays below the fixed 105 °C software trip instead of ratcheting
   into it. Cut point is per-board (82 kΩ → 102 °C / 33 kΩ → 99 °C) or a user
   override `fb_cut` (90–104 °C). It can **only remove power**, can never exceed
-  104 °C, and does not touch the fixed 105 °C **software** cutoff. The separate bonded
+  104 °C on the calibrated PTC reading (subject to the offset described below),
+  and does not touch the fixed 105 °C **software** cutoff. The separate bonded
   thermal protector is a physical device, not this 105 °C constant.
 - **Chamber over-temp** → force off at 85 °C.
 - **Sensor fault while heating** (open/short) → fail-closed.
@@ -83,8 +86,9 @@ of a single two-wire thermistor does not require this option.
 Holding **any** front-panel button for 2 s latches the heater off and drops the
 mode to OFF. It is called **panic-off**, deliberately, and is **not** a
 safety-rated emergency stop — it is software running on the same MCU as the rest
-of the control loop, so a firmware fault could defeat it. The Layer-1 bonded
-cutoff and Layer-2 PTC physics remain the actual emergency layer.
+of the control loop, so a firmware fault could defeat it. The separate bonded
+protector and PTC self-limiting behavior provide additional physical protection,
+but their complete fault envelope has not been established.
 The panic-off latch is RAM-only and clears on reboot (it is a manual stop, not a
 hazard trip); reboot still starts with the SSR, mode, and target OFF, and never
 restores an active heat command. Hazard-driven trips, by contrast, **persist** —
@@ -153,8 +157,10 @@ AUTO band fails to no-airflow if disabled or if Moonraker disconnects.
 
 ## What is NOT protected
 - **Over-current** is only the 6.3 A mains fuse. There is no PCB over-temp cutoff.
-- Residual risk is chamber over-temp *up to the Layer-1 trip point* — identical
-  to the stock firmware's failure ceiling.
+- Residual risk includes chamber, wiring and enclosure overheating if the SSR
+  fails or airflow is compromised. The bonded protector's actual trip point,
+  tolerance and resulting chamber temperature have not been characterized here;
+  a stock-equivalent worst-case ceiling is not established.
 - **Panic-off is not an emergency stop** (see above): a firmware fault could
   defeat it. Do not rely on it as your only means of making the device safe.
 
