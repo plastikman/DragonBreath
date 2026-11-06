@@ -159,9 +159,12 @@ depend on heater power, enclosure heat loss, ambient conditions, sensor placemen
 and active firmware limits (including element foldback, local chamber regulation,
 and optional PID shaping).
 
-If chamber temperature plateaus below target, inspect `/diag` for chamber, PTC
-and (when enabled) printer-reported chamber temperatures, requested heater output,
-SSR state, and the active constraint before attributing the plateau to insulation.
+If chamber temperature plateaus below target, inspect `/diag` for chamber and PTC
+temperatures and SSR state. For requested heater duty and active limiting reason,
+inspect `/api/v2/state` (`heater.commanded_duty`, `heater.constraint`); for Bambu
+sources, that API also exposes `environment.printer_chamber_temperature_c` when
+available. These fields are not all displayed on `/diag`. Check the active
+constraint before attributing the plateau to insulation.
 A limiter can reduce delivered heat even when the chamber remains below target;
 otherwise investigate enclosure losses and warm-up time. No particular 65–70 °C
 performance is guaranteed without a defined, measured installation.
@@ -208,12 +211,13 @@ rating, tolerances and fault-condition response still require hardware verificat
 Firmware adds sensor checks, a comms-loss watchdog and fixed **software** cutoffs,
 including a **105 °C PTC-element software trip** that latches a fault (and survives
 a power-cycle). Below that, a per-board **element-temperature foldback** cuts the SSR
-with hysteresis to hold the element *under* the hard cutoff instead of tripping it —
+with hysteresis to keep the element below the fixed 105 °C software trip —
 so a hot or poorly-insulated install keeps warming the chamber rather than falling
 into a "clear → trip again" loop. The foldback cut point is per-Rref (99 °C on
 33 kΩ / V1.0, 102 °C on 82 kΩ / V1.0.1) and user-adjustable within **90–104 °C**
 (**Settings → Foldback cut**); it can only *reduce* heater demand and can never
-exceed 104 °C, so it cannot defeat the hard cutoff. No firmware can *guarantee* the
+exceed 104 °C on the calibrated reading, so it cannot override the fixed 105 °C
+software trip. No firmware can *guarantee* the
 absence of a fault; read [`docs/SAFETY.md`](docs/SAFETY.md) before touching heater
 code and supervise the device.
 
