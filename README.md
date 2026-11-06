@@ -152,17 +152,19 @@ The OpenVent-to-DragonBreath-to-dragon-core history and MIT provenance are recor
 [VENDORING.md](VENDORING.md).
 
 ## Chamber temperature — what to expect
-The stock Panda firmware caps the chamber target at **60 °C**. **DragonBreath lifts
-this to 70 °C.** Reaching the top of that range is **possible, not guaranteed** —
-**65 °C is readily achievable** on a typical enclosure, and 70 °C is within reach
-given the right conditions. The limiting factor is your **enclosure insulation and
-time**, not the firmware. The PTC element is self-limiting and the firmware folds
-heater power back below its safety cutoff, so once the element saturates the chamber
-only climbs as fast as the enclosure can hold the heat. A well-sealed, insulated
-chamber given enough soak time will reach higher and hold it; a leaky one (taped
-seams, thin panels) plateaus lower no matter how long it runs. If you're stalling
-short of a target, add insulation and allow more warm-up time before assuming a
-hardware limit. 60–65 °C covers ASA/ABS comfortably.
+The stock Panda firmware caps the chamber target at **60 °C**. **DragonBreath allows
+up to 70 °C**, but that setting does not guarantee a 70 °C chamber or establish
+that every enclosure is safe at that temperature. Actual achievable temperatures
+depend on heater power, enclosure heat loss, ambient conditions, sensor placement,
+and active firmware limits (including element foldback, local chamber regulation,
+and optional PID shaping).
+
+If chamber temperature plateaus below target, inspect `/diag` for chamber, PTC
+and (when enabled) printer-reported chamber temperatures, requested heater output,
+SSR state, and the active constraint before attributing the plateau to insulation.
+A limiter can reduce delivered heat even when the chamber remains below target;
+otherwise investigate enclosure losses and warm-up time. No particular 65–70 °C
+performance is guaranteed without a defined, measured installation.
 
 > **The heater does not automatically coordinate the bed.** On OrcaSlicer,
 > chamber-temperature control emits a blocking `M191` *before* Machine start
