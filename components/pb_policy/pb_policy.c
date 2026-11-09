@@ -1202,8 +1202,9 @@ void pb_policy_tick(void)
     pb_leds_set(PB_LED_POWER, faulted ? PB_LED_BLINK : PB_LED_SOLID);
     if (pb_leds_get(PB_LED_ON) != PB_LED_CODE_ONCE)
         pb_leds_set(PB_LED_ON, s.mode == PB_MODE_POWER_ON ? PB_LED_SOLID : PB_LED_OFF);
-    // AUTO distinguishes armed-but-waiting (no Moonraker link, or bed below the
-    // threshold) from actually driving heat — the most useful thing the panel says.
+    // AUTO distinguishes armed-but-waiting (disconnected source, no valid
+    // filament-zone target, or Klipper helper ownership) from engaged heating.
+    // The panel shows whether AUTO is armed or actively engaged.
     pb_leds_set(PB_LED_AUTO,
                 s.mode != PB_MODE_AUTO  ? PB_LED_OFF
                 : s.auto_engaged        ? PB_LED_SOLID
