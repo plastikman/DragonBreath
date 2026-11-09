@@ -2,23 +2,29 @@
 
 The Panda Breath heats a chamber with a **PTC ceramic element** switched by a
 **solid-state relay**. Custom firmware controls that heater, so the safety story
-matters. Good news: there are **two independent hardware backstops** that do not
-depend on any firmware — this firmware is the third, soft layer.
+matters. The physical protections include a **bonded thermal protector** and the PTC
+element's self-limiting behavior; neither is controlled by this firmware. Their
+presence does not establish a measured maximum chamber temperature or a complete
+fault-safety envelope for every installation. The firmware provides additional
+software interlocks.
 
-## Layer 1 (hardware) — bonded thermal cutoff
+## Layer 1 (hardware) — bonded thermal protector
 A cylindrical thermal protector (bimetal KSD-type disc or one-shot thermal fuse)
-is spliced **in series with the PTC's mains lead** and bonded to the heater
-frame (confirmed on the real unit, photo IMG_7631). It sits **upstream of the
-SSR**, so it opens on element over-temp **regardless of firmware and regardless
-of the SSR failing shorted** — the classic worst-case failure.
+is reported in series with the PTC's mains lead and bonded to the heater frame
+(maintainer inspection referencing photo IMG_7631; the photo is not included
+in this repository). It is reportedly upstream of the SSR; if that placement
+is correct, a properly functioning protector can interrupt power even if the
+SSR fails shorted.
+Its exact part number, rated trip point, tolerances and behavior under the full
+fault envelope are not established by the firmware's temperature constants.
 
 ## Layer 2 (physics) — PTC self-limiting
 The element is a **PTC ceramic**: its resistance rises sharply at the Curie
 temperature, collapsing its own power, so it is strongly **self-limiting** rather
-than thermally runaway-prone. A firmware bug or a welded SSR should at most drive
-the chamber toward the element's self-limited equilibrium, which the Layer-1
-cutoff bounds. This is a strong physical safety margin, **not an absolute
-guarantee** — no firmware can promise the absence of every fault.
+than thermally runaway-prone. PTC behavior reduces the risk of uncontrolled element heating, but it does
+**not** by itself establish a safe chamber, wiring, enclosure or component
+temperature during an SSR failure. The bonded protector and PTC material need
+independent identification and fault-condition characterization.
 
 ## Layer 3 (this firmware) — soft cutoffs
 `pb_heater` enforces, every control tick, before any heat request:
@@ -26,10 +32,12 @@ guarantee** — no firmware can promise the absence of every fault.
   unconditional, latching check.
 - **Element foldback limiter** → below the 105 °C cutoff, the SSR is cut with
   hysteresis at a per-Rref point and held off until the element cools to a resume
-  point, so a hot/slow element holds *under* the hard cutoff instead of ratcheting
+  point, so a hot/slow element stays below the fixed 105 °C software trip instead of ratcheting
   into it. Cut point is per-board (82 kΩ → 102 °C / 33 kΩ → 99 °C) or a user
   override `fb_cut` (90–104 °C). It can **only remove power**, can never exceed
-  104 °C, and does not touch the fixed 105 °C hardware cutoff.
+  104 °C on the calibrated PTC reading (subject to the offset described below),
+  and does not touch the fixed 105 °C **software** cutoff. The separate bonded
+  thermal protector is a physical device, not this 105 °C constant.
 - **Chamber over-temp** → force off at 85 °C.
 - **Sensor fault while heating** (open/short) → fail-closed.
 - **Comms-loss watchdog** → if no controller link while heating for the watchdog
@@ -51,15 +59,17 @@ corrupt or hand-edited stored value clamps to the bound, it is never applied raw
 The offset is applied inside `pb_ntc`, so the display, control regulation, AUTO,
 and the over-temp cutoffs all act on the **same** calibrated value.
 
-Because the offset is bounded to ±5 °C, the fixed cutoffs can shift by **at most
-5 °C**: the chamber trips at **≥80 °C** worst case (85 − 5) and the PTC element at
-**≥100 °C** worst case (105 − 5). The cutoff constants themselves
-(`PB_HEATER_CHAMBER_MAX_C` = 85, `PB_HEATER_PTC_CUTOFF_C` = 105) are unchanged and
-not user-configurable, and calibration touches only the reading, never the
-sensor-fault fail-closed logic (which is raw-count based). Calibration therefore
-**cannot disable a fault** or exceed the ±5 °C bound, and the Layer-1 bonded
-thermal cutoff + Layer-2 PTC self-limit remain the true emergency layer regardless
-of any offset.
+The software compares the **calibrated reading** `estimated + offset` with each
+fixed threshold `T`. In terms of the unoffset temperature estimate, the trip
+condition is `estimated >= T - offset`. An offset of +5 °C makes a threshold
+trigger 5 °C earlier; an offset of -5 °C makes it trigger 5 °C later. Thus the
+85 °C chamber trip corresponds to **80–90 °C** on the unoffset estimate, and
+the 105 °C PTC trip to **100–110 °C**. These are calculated *estimate* ranges,
+not guaranteed actual temperatures: sensor error, placement and thermal lag add
+uncertainty. The constants (`PB_HEATER_CHAMBER_MAX_C` = 85,
+`PB_HEATER_PTC_CUTOFF_C` = 105) remain fixed and calibration does not change the
+raw-count sensor fault classification. Bounded calibration is not a substitute
+for verifying the independent physical protector.
 
 ## Thermistor channel mapping
 `swap_thermistors` is an opt-in setting for the uncommon case where the chamber
@@ -76,8 +86,9 @@ of a single two-wire thermistor does not require this option.
 Holding **any** front-panel button for 2 s latches the heater off and drops the
 mode to OFF. It is called **panic-off**, deliberately, and is **not** a
 safety-rated emergency stop — it is software running on the same MCU as the rest
-of the control loop, so a firmware fault could defeat it. The Layer-1 bonded
-cutoff and Layer-2 PTC physics remain the actual emergency layer.
+of the control loop, so a firmware fault could defeat it. The separate bonded
+protector and PTC self-limiting behavior provide additional physical protection,
+but their complete fault envelope has not been established.
 The panic-off latch is RAM-only and clears on reboot (it is a manual stop, not a
 hazard trip); reboot still starts with the SSR, mode, and target OFF, and never
 restores an active heat command. Hazard-driven trips, by contrast, **persist** —
@@ -146,8 +157,10 @@ AUTO band fails to no-airflow if disabled or if Moonraker disconnects.
 
 ## What is NOT protected
 - **Over-current** is only the 6.3 A mains fuse. There is no PCB over-temp cutoff.
-- Residual risk is chamber over-temp *up to the Layer-1 trip point* — identical
-  to the stock firmware's failure ceiling.
+- Residual risk includes chamber, wiring and enclosure overheating if the SSR
+  fails or airflow is compromised. The bonded protector's actual trip point,
+  tolerance and resulting chamber temperature have not been characterized here;
+  a stock-equivalent worst-case ceiling is not established.
 - **Panic-off is not an emergency stop** (see above): a firmware fault could
   defeat it. Do not rely on it as your only means of making the device safe.
 

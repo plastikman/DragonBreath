@@ -49,15 +49,16 @@ see [`OEM_PARITY.md`](OEM_PARITY.md).
 
 Defense-in-depth — see [`SAFETY.md`](SAFETY.md) for the full model.
 
-- **Hardware backstops (independent of firmware):** a bonded thermal cutoff in
-  the PTC mains lead + PTC self-limiting physics bound the worst case even with a
-  welded SSR or a firmware bug.
+- **Physical protections (independent of firmware):** a reported bonded thermal
+  protector in the PTC mains lead and the element's PTC self-limiting behavior.
+  Their presence does not establish a measured safe worst-case temperature or
+  complete protection under a welded SSR; see [`SAFETY.md`](SAFETY.md).
 - **Firmware soft cutoffs:** 105 °C PTC over-temp and 85 °C chamber over-temp
   (both **fixed, non-configurable**); sensor-fault fail-closed (a bad thermistor
   latches the heater off).
 - **Element foldback limiter:** below the 105 °C cutoff, the SSR is cut with
   hysteresis (per-Rref: 82 kΩ → 102 °C / 33 kΩ → 99 °C, or a user `fb_cut`
-  override 90–104 °C) so a hot element holds under the hard cutoff instead of
+  override 90–104 °C) so a hot element holds below the fixed 105 °C software trip instead of
   tripping it. Can only remove power; never exceeds 104 °C; the 105 °C cutoff is
   unaffected.
 - **Per-Rref board detection:** the thermistor reference resistor (82 kΩ V1.0.1 /
@@ -130,8 +131,8 @@ polled at 10 ms with 20 ms debounce and short/long-press detection (`pb_buttons`
   bound, On keeps its existing single-press behavior.
 - A **2 s long-press** on any button latches a **panic-off** — heater off, mode
   OFF, remote lease invalidated. It is not a safety-rated emergency stop (see
-  [`SAFETY.md`](SAFETY.md)); the hardware over-temp backstops remain the
-  emergency layer.
+  [`SAFETY.md`](SAFETY.md)); the bonded protector and PTC element provide
+  separate physical protection whose complete fault envelope is unverified.
 - A **long-press on Power while faulted** attempts a fault clear instead, which
   only holds if the underlying condition has recovered.
 

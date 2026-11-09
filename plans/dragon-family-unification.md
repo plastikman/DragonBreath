@@ -1,6 +1,12 @@
 # RFC: Dragon firmware family unification
 
-Status: **Accepted; implementation in progress.** Updated after the initial
+> **Historical planning snapshot (2026-08-09).** Version numbers, component
+> counts and implementation milestones below describe the state at that date,
+> not today's dependency pins or current work queue. For current versions, inspect
+> `main/idf_component.yml` and the live repository. Proposed namespace migrations
+> are not prerequisites for unrelated heater fixes.
+
+Status at snapshot: **Accepted; implementation in progress.** Updated after the initial
 dragon-core extraction landed in DragonBreath via
 [#68](https://github.com/plastikman/DragonBreath/pull/68).
 

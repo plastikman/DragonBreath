@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 // pb_heater — chamber heater control with defense-in-depth over-temp safety.
 //
-// Hardware backstops that exist REGARDLESS of this firmware (see docs/SAFETY.md):
-//   1. Bonded thermal cutoff in the PTC's mains lead (opens on element over-temp,
-//      upstream of the SSR — covers a welded-shut SSR).
-//   2. PTC ceramic self-limiting (Curie point) — cannot thermally run away.
-// This component is the third (soft) layer: correct set-point control + an
+// Physical protection separate from firmware (see docs/SAFETY.md):
+//   1. Reported bonded thermal protector in the PTC's mains lead, reportedly
+//      upstream of the SSR; its rating and full fault response are unverified.
+//   2. PTC ceramic self-limiting behavior reduces element heating as it warms;
+//      it does not establish a safe chamber or enclosure fault temperature.
+// This firmware adds set-point control + an
 // element/chamber over-temp cutoff + a comms-loss watchdog.
 #pragma once
 
@@ -94,7 +95,7 @@ static inline bool pb_heater_fault_decide(bool open_ok, bool ns_not_found,
 }
 
 // --- Safety limits ----------------------------------------------------------
-// Fixed hardware-safety cutoffs — NEVER user-configurable.
+// Fixed SOFTWARE over-temperature trips — NEVER user-configurable.
 #define PB_HEATER_PTC_CUTOFF_C   105.0f   // element over-temp -> force off (stock parity)
 #define PB_HEATER_CHAMBER_MAX_C  85.0f    // chamber over-temp -> force off
 #define PB_HEATER_HYSTERESIS_C   1.0f
@@ -118,10 +119,10 @@ static inline bool pb_heater_local_foldback_cut(bool chamber_ok, float chamber_c
     if (chamber_c < PB_HEATER_LOCAL_FOLDBACK_RESUME_C) return false;
     return prev_cut;
 }
-// Soft element-temperature FOLDBACK, a layer strictly BELOW the hard cutoff: it holds
+// Soft element-temperature FOLDBACK below the fixed 105 °C software trip: it holds
 // the PTC element just under the 105 C trip so a marginal/hot install can reach set-point
 // instead of tripping and needing a manual clear. It never adds heat and never delays the
-// hard cutoff — if the element still reaches PB_HEATER_PTC_CUTOFF_C (welded SSR, runaway,
+// software trip — if the element still reaches PB_HEATER_PTC_CUTOFF_C (e.g. stuck SSR,
 // sensor issue) the latching trip fires exactly as before.
 //
 // Implemented as a HYSTERESIS hard-cut rather than a proportional duty ramp: a linear
@@ -133,7 +134,7 @@ static inline bool pb_heater_local_foldback_cut(bool chamber_ok, float chamber_c
 // peak with margin. The thresholds are PER BOARD VARIANT (selected by the Rref strap, see
 // pb_ntc_rref_kohm()): the 33 kOhm (V1.0) board runs the element hotter / ratchets, so it
 // gets a lower, more conservative cut; the 82 kOhm (V1.0.1) board tops out cooler and can
-// hold a higher cut without approaching 105. Both stay below the 105 C hard cutoff.
+// hold a higher cut without approaching 105. Both stay below the 105 C software trip.
 #define PB_HEATER_PTC_FOLDBACK_CUT_82K_C     102.0f   // 82k board: element >= this -> cut
 #define PB_HEATER_PTC_FOLDBACK_RESUME_82K_C   99.0f   //           hold off until below this
 #define PB_HEATER_PTC_FOLDBACK_CUT_33K_C      99.0f   // 33k board: element >= this -> cut
@@ -150,12 +151,12 @@ static inline void pb_heater_foldback_thresholds(int rref_kohm, float *cut_c, fl
 
 // Optional user override of the foldback CUT (advanced setting; see the settable API
 // below). The resume point always trails the cut by one hysteresis band. The override
-// is bounded well under the fixed 105 C hard cutoff, so it can never defeat over-temp
+// is bounded below the fixed 105 C software trip on calibrated readings; it cannot bypass over-temp
 // protection — it only shifts where the SOFT foldback engages. 0 = "auto" (use the
 // board's per-Rref default from pb_heater_foldback_thresholds).
 #define PB_HEATER_PTC_FOLDBACK_BAND_C   3.0f    // resume = cut - band
 #define PB_HEATER_FB_CUT_MIN_C          90.0f
-#define PB_HEATER_FB_CUT_MAX_C         104.0f   // < 105 hard cutoff, always
+#define PB_HEATER_FB_CUT_MAX_C         104.0f   // < 105 software trip, calibrated reading
 
 // Resolve the EFFECTIVE cut/resume: a positive user override wins (resume = cut - band),
 // otherwise fall back to the board's per-Rref default. Pure/inline for host testing.
@@ -173,7 +174,7 @@ static inline void pb_heater_effective_foldback(float user_cut_c, int rref_kohm,
 //   ptc <  resume_c            -> allow (false)
 //   resume_c <= ptc < cut_c    -> hold the previous state (the hysteresis band)
 //   reading not OK             -> hold the previous state (a bad read is owned by the
-//                                 sensor-fault trip / hard cutoff, not by the foldback)
+//                                 sensor-fault trip / fixed software trip, not by foldback)
 static inline bool pb_heater_foldback_cut(bool ptc_ok, float ptc_c, bool prev_cut,
                                           float cut_c, float resume_c)
 {
@@ -325,9 +326,8 @@ void pb_heater_request_panic_off(const char *reason);
 // clears the persisted latch in NVS. Returns:
 //   ESP_OK                - cleared (and the NVS clear committed)
 //   ESP_ERR_INVALID_STATE - a permanent inhibit is latched (not clearable)
-//   other                 - the RAM latch was cleared but persisting the clear
-//                           FAILED (so it would return on reboot); callers should
-//                           surface this (HTTP 500) rather than report success.
+//   other                 - persisting the clear FAILED; the RAM latch remains
+//                           unchanged and callers should surface failure (HTTP 500).
 esp_err_t pb_heater_clear_fault(void);
 
 // PERMANENT inhibit: force the heater off and refuse all heat until reboot. Unlike

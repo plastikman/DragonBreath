@@ -77,10 +77,12 @@ float pb_ntc_smoothed_c(pb_ntc_channel_t ch);
 // control regulation, AUTO, and the over-temp cutoffs — one consistent number.
 //
 // The offset is HARD-CLAMPED to [-PB_NTC_OFFSET_MAX_C, +PB_NTC_OFFSET_MAX_C] on
-// every set AND on NVS load. Because the bound is ±5 °C, the fixed cutoffs can
-// shift by at most 5 °C (chamber trips at ≥80 °C worst case, PTC at ≥100 °C worst
-// case); calibration can never disable a fault or defeat the hardware backstops
-// (see docs/SAFETY.md). The clamp is defined here as a pure function so it can be
+// every set AND on NVS load. For a fixed software trip threshold T, the
+// unoffset estimate reaches that threshold when estimate >= T - offset:
+// chamber 85 °C -> 80–90 °C, PTC 105 °C -> 100–110 °C across ±5 °C offsets.
+// These are estimated readings, NOT guaranteed physical temperatures. Calibration
+// does not change raw sensor fault classification or characterize hardware
+// protection (see docs/SAFETY.md). The clamp is defined here so it can be
 // unit-tested and reused by both the read path and the NVS loader.
 #define PB_NTC_OFFSET_MAX_C  5.0f
 

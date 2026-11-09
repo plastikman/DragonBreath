@@ -197,9 +197,11 @@ bool  pb_policy_get_filter_auto_enable(void);
 // parity). Pass bed_target_c = 0 when unknown/disconnected.
 //
 // src_target_c is an optional source-requested chamber target (e.g. a Bambu filament
-// zone while a print is active): when > 0 in AUTO mode it engages heat to that target
-// directly, overriding the configured AUTO target and bypassing the bed threshold
-// ("zone wins"). Pass 0 for the normal bed-threshold AUTO behaviour.
+// zone while a print is active): when > 0 in AUTO mode it can engage heat at that
+// target while the source is connected, subject to helper ownership and
+// safety checks. Pass 0 when no valid source target is available; this does not
+// re-enable the old bed-threshold fallback for heating. The bed target remains
+// relevant to the separate fan-only filtration band.
 //
 // chamber_src_c is an optional printer-reported chamber temperature. Pass NAN
 // when unavailable. While the source is live, policy supplies a finite value to

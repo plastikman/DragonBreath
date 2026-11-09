@@ -152,17 +152,22 @@ The OpenVent-to-DragonBreath-to-dragon-core history and MIT provenance are recor
 [VENDORING.md](VENDORING.md).
 
 ## Chamber temperature — what to expect
-The stock Panda firmware caps the chamber target at **60 °C**. **DragonBreath lifts
-this to 70 °C.** Reaching the top of that range is **possible, not guaranteed** —
-**65 °C is readily achievable** on a typical enclosure, and 70 °C is within reach
-given the right conditions. The limiting factor is your **enclosure insulation and
-time**, not the firmware. The PTC element is self-limiting and the firmware folds
-heater power back below its safety cutoff, so once the element saturates the chamber
-only climbs as fast as the enclosure can hold the heat. A well-sealed, insulated
-chamber given enough soak time will reach higher and hold it; a leaky one (taped
-seams, thin panels) plateaus lower no matter how long it runs. If you're stalling
-short of a target, add insulation and allow more warm-up time before assuming a
-hardware limit. 60–65 °C covers ASA/ABS comfortably.
+The stock Panda firmware caps the chamber target at **60 °C**. **DragonBreath allows
+up to 70 °C**, but that setting does not guarantee a 70 °C chamber or establish
+that every enclosure is safe at that temperature. Actual achievable temperatures
+depend on heater power, enclosure heat loss, ambient conditions, sensor placement,
+and active firmware limits (including element foldback, local chamber regulation,
+and optional PID shaping).
+
+If chamber temperature plateaus below target, inspect `/diag` for chamber and PTC
+temperatures and SSR state. For requested heater duty and active limiting reason,
+inspect `/api/v2/state` (`heater.commanded_duty`, `heater.constraint`); for Bambu
+sources, that API also exposes `environment.printer_chamber_temperature_c` when
+available. These fields are not all displayed on `/diag`. Check the active
+constraint before attributing the plateau to insulation.
+A limiter can reduce delivered heat even when the chamber remains below target;
+otherwise investigate enclosure losses and warm-up time. No particular 65–70 °C
+performance is guaranteed without a defined, measured installation.
 
 > **The heater does not automatically coordinate the bed.** On OrcaSlicer,
 > chamber-temperature control emits a blocking `M191` *before* Machine start
@@ -199,18 +204,20 @@ Reverse-engineered and validated on a **V1.0.1** board (82 kΩ Rref); the **V1.0
 board (33 kΩ Rref) is confirmed in the field via a user's heat-cycle logs.
 
 ## Safety
-Two independent **hardware** over-temp backstops (a bonded thermal cutoff in the
-PTC mains lead + PTC self-limiting physics) bound the worst-case failure to
-roughly the stock firmware's ceiling — they are not defeated by a firmware bug or
-a welded SSR. This firmware adds soft cutoffs + a comms-loss watchdog on top,
-including a fixed **105 °C PTC-element cutoff** that latches a fault (and survives a
-power-cycle). Below that, a per-board **element-temperature foldback** cuts the SSR
-with hysteresis to hold the element *under* the hard cutoff instead of tripping it —
+The PTC element's self-limiting behavior and a bonded thermal protector in the
+mains lead provide physical protection independent of firmware. Their presence
+is **not** evidence of a quantified worst-case chamber temperature: protector
+rating, tolerances and fault-condition response still require hardware verification.
+Firmware adds sensor checks, a comms-loss watchdog and fixed **software** cutoffs,
+including a **105 °C PTC-element software trip** that latches a fault (and survives
+a power-cycle). Below that, a per-board **element-temperature foldback** cuts the SSR
+with hysteresis to keep the element below the fixed 105 °C software trip —
 so a hot or poorly-insulated install keeps warming the chamber rather than falling
 into a "clear → trip again" loop. The foldback cut point is per-Rref (99 °C on
 33 kΩ / V1.0, 102 °C on 82 kΩ / V1.0.1) and user-adjustable within **90–104 °C**
 (**Settings → Foldback cut**); it can only *reduce* heater demand and can never
-exceed 104 °C, so it cannot defeat the hard cutoff. No firmware can *guarantee* the
+exceed 104 °C on the calibrated reading, so it cannot override the fixed 105 °C
+software trip. No firmware can *guarantee* the
 absence of a fault; read [`docs/SAFETY.md`](docs/SAFETY.md) before touching heater
 code and supervise the device.
 

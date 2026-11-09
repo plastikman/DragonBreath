@@ -689,7 +689,7 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
     // Step 3 — element-temperature foldback (hysteresis hard-cut). While the PTC element
     // is too hot we force the SSR fully OFF and hold it off until the element cools below
     // the resume point — a real cool-down cycle rather than half-power hovering near the
-    // 105 C hard cutoff. Thresholds are per board Rref variant (33k boards run hotter, so
+    // fixed 105 C software trip. Thresholds are per board Rref variant (33k boards run hotter, so
     // they get a lower cut). Pure + host-tested; ps==OK is guaranteed here (checked above).
     float fb_cut, fb_resume;
     pb_heater_effective_foldback(pb_heater_get_fb_cut_c(), pb_ntc_rref_kohm(), &fb_cut, &fb_resume);
@@ -762,7 +762,7 @@ void pb_heater_tick(void)          // control-task context; sole writer of s_on
     float commanded_duty = safety_inhibited ? 0.0f : duty;
     telemetry_set(commanded_duty, approach_limit, constraint);
 
-    // Step 5 — time-proportion normalized duty through a slow 10 s window. This is
+    // Step 5 — time-proportion normalized duty through the fixed 30 s SSR window. This is
     // still plain on/off drive of a zero-cross SSR; there is no phase cutting.
     bool drive = pb_heater_pid_window_on(
         &s_pid, commanded_duty, esp_timer_get_time());
