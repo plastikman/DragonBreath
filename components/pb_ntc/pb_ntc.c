@@ -13,8 +13,7 @@
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#ifdef CONFIG_PB_DEVBOARD_SAFE
-#else
+#ifndef CONFIG_PB_DEVBOARD_SAFE
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
