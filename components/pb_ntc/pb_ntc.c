@@ -11,8 +11,9 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "nvs.h"
-#ifdef CONFIG_PB_DEVBOARD_SAFE
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#ifdef CONFIG_PB_DEVBOARD_SAFE
 #else
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
