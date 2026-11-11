@@ -28,7 +28,27 @@ int main(void)
     assert(pb_ntc_diag_ring_copy(&ring, NULL, PB_NTC_DIAG_CAPACITY) == 0);
     assert(pb_ntc_diag_ring_copy(&ring, result, 0) == 0);
 
-    for (unsigned i = 0; i < PB_NTC_DIAG_CAPACITY + 20; i++) {
+    // A partly-filled ring is the normal boot condition.
+    for (unsigned i = 0; i < 7; ++i) {
+        pb_ntc_diag_sample_t item = sample(i);
+        pb_ntc_diag_ring_push(&ring, &item);
+    }
+    assert(pb_ntc_diag_ring_copy(&ring, result, PB_NTC_DIAG_CAPACITY) == 7);
+    for (int i = 0; i < 7; ++i) assert(result[i].raw == i);
+    assert(pb_ntc_diag_ring_copy(&ring, result, 3) == 3);
+    for (int i = 0; i < 3; ++i) assert(result[i].raw == i + 4);
+
+    // Exactly full without rollover still begins with sample zero.
+    for (unsigned i = 7; i < PB_NTC_DIAG_CAPACITY; ++i) {
+        pb_ntc_diag_sample_t item = sample(i);
+        pb_ntc_diag_ring_push(&ring, &item);
+    }
+    assert(ring.count == PB_NTC_DIAG_CAPACITY);
+    assert(pb_ntc_diag_ring_copy(&ring, result, PB_NTC_DIAG_CAPACITY) == PB_NTC_DIAG_CAPACITY);
+    for (unsigned i = 0; i < PB_NTC_DIAG_CAPACITY; ++i)
+        assert(result[i].raw == (int)i);
+
+    for (unsigned i = PB_NTC_DIAG_CAPACITY; i < PB_NTC_DIAG_CAPACITY + 20; i++) {
         pb_ntc_diag_sample_t s = sample(i);
         pb_ntc_diag_ring_push(&ring, &s);
     }
