@@ -2,6 +2,7 @@
 #pragma once
 // Pure, bounded storage for ADC samples. Synchronization belongs to callers.
 #include "pb_ntc.h"
+#include <string.h>
 
 typedef struct {
     pb_ntc_diag_sample_t entries[PB_NTC_DIAG_CAPACITY];
@@ -26,7 +27,12 @@ static inline size_t pb_ntc_diag_ring_copy(const pb_ntc_diag_ring_t *ring,
     size_t count = ring->count < max ? ring->count : max;
     size_t start = (ring->next + PB_NTC_DIAG_CAPACITY - count)
                    % PB_NTC_DIAG_CAPACITY;
-    for (size_t i = 0; i < count; ++i)
-        out[i] = ring->entries[(start + i) % PB_NTC_DIAG_CAPACITY];
+    // Two contiguous copies avoid per-record modulo arithmetic while the
+    // product's short critical section protects this snapshot.
+    size_t first = PB_NTC_DIAG_CAPACITY - start;
+    if (first > count) first = count;
+    memcpy(out, &ring->entries[start], first * sizeof *out);
+    if (count > first)
+        memcpy(out + first, ring->entries, (count - first) * sizeof *out);
     return count;
 }
