@@ -1242,7 +1242,7 @@ static esp_err_t adc_capture_get(httpd_req_t *req)
     if (!pb_httpd_auth_ok(req)) {
         httpd_resp_set_status(req, "403 Forbidden");
         httpd_resp_set_type(req, "application/json");
-        return httpd_resp_sendstr(req, "{\\"error\\":\\"missing/invalid X-DragonBreath-Auth header\\"}");
+        return httpd_resp_sendstr(req, "{\"error\":\"missing/invalid X-DragonBreath-Auth header\"}");
     }
 
     pb_ntc_diag_sample_t *samples = calloc(PB_NTC_DIAG_CAPACITY, sizeof *samples);
@@ -1258,7 +1258,7 @@ static esp_err_t adc_capture_get(httpd_req_t *req)
                         "attachment; filename=dragonbreath-adc-capture.csv");
 
     esp_err_t result = httpd_resp_send_chunk(req,
-        "timestamp_us,channel,source_index,raw,millivolts,temperature_c,status,rref_kohm\\n",
+        "timestamp_us,channel,source_index,raw,millivolts,temperature_c,status,rref_kohm\n",
         HTTPD_RESP_USE_STRLEN);
 
     char line[192];
@@ -1268,7 +1268,7 @@ static esp_err_t adc_capture_get(httpd_req_t *req)
         if (sample->status == PB_NTC_OK && isfinite(sample->temperature_c))
             snprintf(temperature, sizeof temperature, "%.3f",
                      (double)sample->temperature_c);
-        int n = snprintf(line, sizeof line, "%llu,%s,%d,%d,%d,%s,%s,%d\\n",
+        int n = snprintf(line, sizeof line, "%llu,%s,%d,%d,%d,%s,%s,%d\n",
                          (unsigned long long)sample->timestamp_us,
                          sample->channel == PB_NTC_PTC ? "ptc" : "chamber",
                          sample->source_index, sample->raw, sample->millivolts,
