@@ -36,8 +36,13 @@ grep -Fq '.handler = adc_capture_get' "$httpd" || {
     echo "ADC capture handler is not registered" >&2
     exit 1
 }
-grep -Fq 'if (!pb_httpd_auth_ok(req))' "$httpd" || {
-    echo "authenticated GET protection is missing" >&2
+adc_handler=$(sed -n '/^static esp_err_t adc_capture_get(/,/^}/p' "$httpd")
+printf '%s\n' "$adc_handler" | grep -Fq 'if (!pb_httpd_auth_ok(req))' || {
+    echo "ADC capture GET authentication guard is missing" >&2
+    exit 1
+}
+printf '%s\n' "$adc_handler" | grep -Fq 'pb_ntc_diag_snapshot(' || {
+    echo "ADC capture GET does not use the passive sensor snapshot" >&2
     exit 1
 }
 grep -Fq 'X-DragonBreath-Boot-ID' "$httpd" || {
