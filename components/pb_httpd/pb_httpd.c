@@ -1256,10 +1256,34 @@ static esp_err_t adc_capture_get(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, "Content-Disposition",
                         "attachment; filename=dragonbreath-adc-capture.csv");
+    // Context belongs in headers: keep the CSV schema unchanged for offline
+    // parsers and future DragonSniff integration. Use capture-start uptime,
+    // not the post-stream time, to bound alignment with /state observations.
+    char capture_us[24];
+    snprintf(capture_us, sizeof capture_us, "%llu",
+             (unsigned long long)esp_timer_get_time());
+    char chamber_offset[24], ptc_offset[24];
+    snprintf(chamber_offset, sizeof chamber_offset, "%.3f",
+             (double)pb_ntc_get_offset_c(PB_NTC_CHAMBER));
+    snprintf(ptc_offset, sizeof ptc_offset, "%.3f",
+             (double)pb_ntc_get_offset_c(PB_NTC_PTC));
+    httpd_resp_set_hdr(req, "X-DragonBreath-Boot-ID", s_boot_id);
+    httpd_resp_set_hdr(req, "X-DragonBreath-Firmware",
+                        esp_app_get_description()->version);
+    httpd_resp_set_hdr(req, "X-DragonBreath-Capture-Uptime-Us", capture_us);
+    httpd_resp_set_hdr(req, "X-DragonBreath-Chamber-Offset-C", chamber_offset);
+    httpd_resp_set_hdr(req, "X-DragonBreath-PTC-Offset-C", ptc_offset);
 
-    esp_err_t result = httpd_resp_send_chunk(req,
-        "timestamp_us,channel,source_index,raw,millivolts,temperature_c,status,rref_kohm\n",
-        HTTPD_RESP_USE_STRLEN);
+    // Batching greatly reduces HTTP send calls for slow clients. A failure
+    // stops immediately; the control task and ADC history remain independent.
+    char chunk[1536];
+    size_t used = 0;
+    const char *header =
+        "timestamp_us,channel,source_index,raw,millivolts,temperature_c,status,rref_kohm\n";
+    size_t header_len = strlen(header);
+    memcpy(chunk, header, header_len);
+    used = header_len;
+    esp_err_t result = ESP_OK;
 
     char line[192];
     for (size_t i = 0; result == ESP_OK && i < count; ++i) {
@@ -1277,8 +1301,16 @@ static esp_err_t adc_capture_get(httpd_req_t *req)
             result = ESP_FAIL;
             break;
         }
-        result = httpd_resp_send_chunk(req, line, (size_t)n);
+        if (used + (size_t)n > sizeof chunk) {
+            result = httpd_resp_send_chunk(req, chunk, used);
+            used = 0;
+            if (result != ESP_OK) break;
+        }
+        memcpy(chunk + used, line, (size_t)n);
+        used += (size_t)n;
     }
+    if (result == ESP_OK && used)
+        result = httpd_resp_send_chunk(req, chunk, used);
     if (result == ESP_OK) result = httpd_resp_send_chunk(req, NULL, 0);
     free(samples);
     return result;
@@ -1392,7 +1424,11 @@ esp_err_t pb_httpd_register(httpd_handle_t server)
     httpd_register_uri_handler(s_server, &setp);
     httpd_register_uri_handler(s_server, &logs);
     httpd_register_uri_handler(s_server, &cons);
-    httpd_register_uri_handler(s_server, &adcdiag);
+    esp_err_t diag_err = httpd_register_uri_handler(s_server, &adcdiag);
+    if (diag_err != ESP_OK) {
+        ESP_LOGE(TAG, "ADC capture route registration failed: %s", esp_err_to_name(diag_err));
+        return diag_err;
+    }
     httpd_register_uri_handler(s_server, &rst);
     httpd_register_uri_handler(s_server, &booti);
     httpd_register_uri_handler(s_server, &frst);
