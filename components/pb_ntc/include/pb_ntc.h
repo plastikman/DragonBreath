@@ -10,6 +10,8 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include "esp_err.h"
 
 typedef enum {
@@ -66,6 +68,29 @@ pb_ntc_status_t pb_ntc_read(pb_ntc_channel_t ch, float *out_c);
 // Status of the most recent pb_ntc_read() for the channel (PB_NTC_UNINIT before
 // the first read). Lets callers report/emit sensor state without re-reading.
 pb_ntc_status_t pb_ntc_last_status(pb_ntc_channel_t ch);
+
+// Fixed-size history of EXISTING safety-loop samples, in chronological order.
+// These fields describe ADC measurement, not independently verified temperature.
+// raw/millivolts are -1 if acquisition/calibration failed; temperature is NaN
+// unless status == PB_NTC_OK. source_index is the physical ADC input (0 or 1),
+// while channel is the logical chamber/PTC identity after any configured swap.
+// The capture never triggers an extra ADC conversion or changes safety behavior.
+#define PB_NTC_DIAG_CAPACITY 256
+
+typedef struct {
+    uint64_t timestamp_us;    // monotonic uptime at ADC sampling, no wall-clock assumption
+    int raw;
+    int millivolts;
+    float temperature_c;      // instantaneous, calibrated, NaN on invalid sample
+    pb_ntc_status_t status;
+    pb_ntc_channel_t channel;
+    int source_index;
+} pb_ntc_diag_sample_t;
+
+// Snapshot up to max newest records, returned oldest -> newest. Thread-safe;
+// the caller owns the output memory. The devboard/HIL backend reports 0 because
+// injected temperatures are not actual ADC readings.
+size_t pb_ntc_diag_snapshot(pb_ntc_diag_sample_t *out, size_t max);
 
 // Latest smoothed temperature (5-sample moving average, for display/telemetry).
 // NAN if no valid reading yet. Fed by pb_ntc_read on each OK sample.
