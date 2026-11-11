@@ -2,12 +2,14 @@
 // See docs/NTC_CONVERSION.md for the full reverse-engineering derivation.
 #include "pb_ntc.h"
 #include "pb_board.h"
+#include "pb_ntc_diag_ring.h"
 
 #include <math.h>
 #include <stdbool.h>
 #include <string.h>
 #include <stdatomic.h>
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "nvs.h"
 #ifdef CONFIG_PB_DEVBOARD_SAFE
 #include "freertos/FreeRTOS.h"
@@ -214,6 +216,14 @@ float pb_ntc_smoothed_c(pb_ntc_channel_t ch)
 // also fixes an undefined-reference link error in the HIL build.
 int pb_ntc_rref_kohm(void) { return 82; }
 
+// Injected HIL temperatures must never masquerade as actual ADC samples.
+size_t pb_ntc_diag_snapshot(pb_ntc_diag_sample_t *out, size_t max)
+{
+    (void)out;
+    (void)max;
+    return 0;
+}
+
 #else
 
 // Low-side NTC divider supply K in Rntc = Rref*V/(K-V) = the ~3.3 V rail.
@@ -252,6 +262,20 @@ static adc_oneshot_unit_handle_t s_adc;
 static adc_cali_handle_t s_cali[2];
 static int s_rref_kohm;
 static bool s_ready;
+
+// Only the existing control-task ADC reads write this bounded ring. The HTTP
+// task takes a snapshot under a short critical section, then streams outside it.
+static pb_ntc_diag_ring_t s_diag;
+static portMUX_TYPE s_diag_mux = portMUX_INITIALIZER_UNLOCKED;
+
+size_t pb_ntc_diag_snapshot(pb_ntc_diag_sample_t *out, size_t max)
+{
+    if (!out || max == 0) return 0;
+    taskENTER_CRITICAL(&s_diag_mux);
+    size_t n = pb_ntc_diag_ring_copy(&s_diag, out, max);
+    taskEXIT_CRITICAL(&s_diag_mux);
+    return n;
+}
 
 // moving-average state per channel
 static float s_win[2][PB_AVG_WINDOW];
@@ -343,13 +367,24 @@ pb_ntc_status_t pb_ntc_read(pb_ntc_channel_t ch, float *out_c)
     int source = ntc_source_index(ch);
     pb_ntc_status_t st = PB_NTC_UNINIT;
     float t = NAN;
+    pb_ntc_diag_sample_t diag = {
+        .timestamp_us = (uint64_t)esp_timer_get_time(),
+        .raw = -1,
+        .millivolts = -1,
+        .temperature_c = NAN,
+        .status = PB_NTC_UNINIT,
+        .channel = ch,
+        .source_index = source,
+    };
 
     do {
         if (!s_ready) { st = PB_NTC_UNINIT; break; }
         int raw = 0;
         if (adc_oneshot_read(s_adc, s_chan[source], &raw) != ESP_OK) { st = PB_NTC_UNINIT; break; }
+        diag.raw = raw;
         int mv = 0;
         if (adc_cali_raw_to_voltage(s_cali[source], raw, &mv) != ESP_OK) { st = PB_NTC_UNINIT; break; }
+        diag.millivolts = mv;
         float v = (float)mv / 1000.0f;               // volts at the pin
         st = pb_ntc_classify(raw, v);                // shared open/short/rail ladder
         if (st != PB_NTC_OK) break;
@@ -359,6 +394,12 @@ pb_ntc_status_t pb_ntc_read(pb_ntc_channel_t ch, float *out_c)
         push_average(ch, t);                          // feed the display filter
         st = PB_NTC_OK;
     } while (0);
+
+    diag.status = st;
+    diag.temperature_c = st == PB_NTC_OK ? t : NAN;
+    taskENTER_CRITICAL(&s_diag_mux);
+    pb_ntc_diag_ring_push(&s_diag, &diag);
+    taskEXIT_CRITICAL(&s_diag_mux);
 
     s_last_status[ch] = st;
     if (out_c) *out_c = t;                            // instantaneous (NAN on fault)
