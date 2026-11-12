@@ -59,6 +59,9 @@ jobs:
       - name: Test NTC sample classifier (open / short / rail fail-status)
         run: sh tests/run_ntc_status_host_test.sh
 
+      - name: Test read-only ADC diagnostic ring
+        run: sh tests/run_ntc_diag_host_test.sh
+
       - name: Test persistent fault-latch boot restore (fail-safe)
         run: sh tests/run_heater_fault_host_test.sh
 

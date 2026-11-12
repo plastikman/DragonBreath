@@ -27,6 +27,37 @@ for route in info state command heartbeat events health; do
     }
 done
 
+# Authenticated, read-only ADC export is a fixed route, not a generic proxy.
+grep -Fq '.uri = "/api/v2/adc-capture"' "$httpd" || {
+    echo "ADC capture route registration is missing" >&2
+    exit 1
+}
+grep -Fq '.handler = adc_capture_get' "$httpd" || {
+    echo "ADC capture handler is not registered" >&2
+    exit 1
+}
+adc_handler=$(sed -n '/^static esp_err_t adc_capture_get(/,/^}/p' "$httpd")
+printf '%s\n' "$adc_handler" | grep -Fq 'if (!pb_httpd_auth_ok(req))' || {
+    echo "ADC capture GET authentication guard is missing" >&2
+    exit 1
+}
+printf '%s\n' "$adc_handler" | grep -Fq 'pb_ntc_diag_snapshot(' || {
+    echo "ADC capture GET does not use the passive sensor snapshot" >&2
+    exit 1
+}
+grep -Fq 'X-DragonBreath-Boot-ID' "$httpd" || {
+    echo "ADC capture provenance is missing" >&2
+    exit 1
+}
+grep -Fq 'X-DragonBreath-Capture-Uptime-Us' "$httpd" || {
+    echo "ADC capture timing provenance is missing" >&2
+    exit 1
+}
+grep -Fq 'X-DragonBreath-PTC-Offset-C' "$httpd" || {
+    echo "ADC capture calibration metadata is missing" >&2
+    exit 1
+}
+
 for field in '"schema"' '"product"' '"display_name"'; do
     grep -q "$field" "$httpd" || {
         echo "api v2 info is missing shared-SPA descriptor field: $field" >&2
