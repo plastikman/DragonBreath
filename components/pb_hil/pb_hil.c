@@ -217,7 +217,7 @@ static pb_policy_result_t run_mode_command(
         if (!json_number(request, "bed_threshold_c", &threshold))
             return PB_POLICY_INVALID;
         return pb_policy_set_auto(
-            (float)target, (float)threshold, DB_SOURCE_WEB,
+            (float)target, (float)threshold, false, DB_SOURCE_WEB,
             PB_POLICY_REVISION_ANY);
     }
     if (strcmp(mode->valuestring, "drying") == 0) {
