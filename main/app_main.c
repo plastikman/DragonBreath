@@ -240,6 +240,7 @@ static void control_task(void *arg)
         float bed_c = 0.0f;
         float bed_target_c = 0.0f;
         float src_target_c = 0.0f;
+        bool  src_zone_available = false;
         float chamber_src_c = NAN;
         bool  src_connected = false;
         bool  klipper_helper_present = false;   // Klipper [dragonbreath] helper seen
@@ -267,9 +268,11 @@ static void control_task(void *arg)
                         // Filament chamber zone: while a print is active,
                         // request the active filament's zone target
                         // (0 = no zone -> normal bed-AUTO).
-                        if (bs.printing)
-                            src_target_c =
-                                (float)dc_bambu_zone_target(bs.filament);
+                        if (bs.printing) {
+                            uint8_t zone_target = 0;
+                            src_zone_available = dc_bambu_zone_resolve(bs.filament, &zone_target);
+                            src_target_c = (float)zone_target;
+                        }
                     }
                 }
                 break;
@@ -297,8 +300,11 @@ static void control_task(void *arg)
                     if (src_connected) {
                         if (isfinite(ps.bed_temp)) bed_c = ps.bed_temp;
                         bed_target_c = ps.bed_target;
-                        if (ps.material[0])
-                            src_target_c = (float)dc_bambu_zone_target(ps.material);
+                        if (ps.material[0]) {
+                            uint8_t zone_target = 0;
+                            src_zone_available = dc_bambu_zone_resolve(ps.material, &zone_target);
+                            src_target_c = (float)zone_target;
+                        }
                     }
                 }
                 break;
@@ -319,8 +325,11 @@ static void control_task(void *arg)
                     // request that filament's zone target (0 = no zone -> normal bed-AUTO).
                     bool printing = st.printing || st.printer == DC_PRINTER_PREPARING
                                                 || st.printer == DC_PRINTER_PAUSED;
-                    if (src_connected && printing && st.material[0])
-                        src_target_c = (float)dc_bambu_zone_target(st.material);
+                    if (src_connected && printing && st.material[0]) {
+                        uint8_t zone_target = 0;
+                        src_zone_available = dc_bambu_zone_resolve(st.material, &zone_target);
+                        src_target_c = (float)zone_target;
+                    }
                 }
                 break;
             }
@@ -332,6 +341,7 @@ static void control_task(void *arg)
             src_target_c,
             chamber_src_c
         );
+        pb_policy_set_source_zone_available(src_zone_available);
         pb_policy_set_klipper_helper(klipper_helper_present);
         // Home Assistant: pump the client whenever it's up — full-control when HA is
         // the selected source, or read-only when it runs alongside another source

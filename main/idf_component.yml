@@ -12,9 +12,9 @@ dependencies:
     path: components/dc_source
     version: v0.36.0
   dc_bambu:
-    git: https://github.com/justinh-rahb/dragon-core.git
+    git: https://github.com/plastikman/dragon-core.git
     path: components/dc_bambu
-    version: v0.36.0
+    version: 4b24f79e9da316813a1da54388ea16170c2de68b
   dc_wifi:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_wifi
@@ -24,9 +24,9 @@ dependencies:
     path: components/dc_moonraker
     version: v0.36.0
   dc_ui:
-    git: https://github.com/justinh-rahb/dragon-core.git
+    git: https://github.com/plastikman/dragon-core.git
     path: components/dc_ui
-    version: v0.36.0
+    version: 4b24f79e9da316813a1da54388ea16170c2de68b
   dc_mqtt:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_mqtt

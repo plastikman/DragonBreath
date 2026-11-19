@@ -383,7 +383,7 @@ static void test_auto_requires_live_source(void)
 {
     reset_fixture();
     CHECK(pb_policy_set_auto(
-        60.0f, 100.0f, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+        60.0f, 100.0f, false, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
 
     // A high bed setpoint no longer engages AUTO on its own (no zone target).
     pb_policy_set_env(100.0f, 100.0f, true, 0.0f, NAN);
@@ -414,6 +414,39 @@ static void test_auto_requires_live_source(void)
     CHECK(snap.effective_target_c == 0.0f);
 }
 
+// A configured Off zone is still an explicit filament choice. It must suppress
+// bed preheat rather than falling back to the AUTO preheat target.
+static void test_auto_explicit_off_zone_overrides_bed_preheat(void)
+{
+    reset_fixture();
+    CHECK(pb_policy_set_auto(
+        60.0f, 100.0f, true, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+
+    // Bed starts preheating before filament telemetry arrives.
+    pb_policy_set_env(20.0f, 100.0f, true, 0.0f, NAN);
+    pb_policy_set_source_zone_available(false);
+    pb_policy_tick();
+    pb_policy_snapshot_t snap = snapshot();
+    CHECK(snap.auto_engaged);
+    CHECK(snap.effective_target_c == 60.0f);
+
+    // A positive filament zone replaces the preheat target.
+    pb_policy_set_env(20.0f, 100.0f, true, 55.0f, NAN);
+    pb_policy_set_source_zone_available(true);
+    pb_policy_tick();
+    snap = snapshot();
+    CHECK(snap.auto_engaged);
+    CHECK(snap.effective_target_c == 55.0f);
+
+    // The same active bed setpoint cannot override an explicit Off zone.
+    pb_policy_set_env(20.0f, 100.0f, true, 0.0f, NAN);
+    pb_policy_set_source_zone_available(true);
+    pb_policy_tick();
+    snap = snapshot();
+    CHECK(!snap.auto_engaged);
+    CHECK(snap.effective_target_c == 0.0f);
+}
+
 // The Klipper [dragonbreath] helper is itself a manual chamber controller; when it
 // is installed (db_present over Moonraker) AUTO must not also drive the heater. AUTO
 // stays armed but never engages while the helper is present, and resumes once it's
@@ -422,7 +455,7 @@ static void test_klipper_helper_suppresses_auto(void)
 {
     reset_fixture();
     CHECK(pb_policy_set_auto(
-        60.0f, 100.0f, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+        60.0f, 100.0f, false, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
 
     // Baseline: connected source + zone target engages AUTO.
     pb_policy_set_env(20.0f, 0.0f, true, 55.0f, NAN);
@@ -456,7 +489,7 @@ static void test_external_chamber_control_forwarding(void)
 {
     reset_fixture();
     CHECK(pb_policy_set_auto(
-        60.0f, 100.0f, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+        60.0f, 100.0f, false, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
 
     // AUTO + live source + finite chamber telemetry reaches the heater seam.
     pb_policy_set_env(20.0f, 0.0f, true, 55.0f, 42.5f);
@@ -498,7 +531,7 @@ static void test_auto_filtration_band_fan_only_not_cooldown(void)
     // AUTO, heat threshold 100 C; filter_temp defaults to 30 C. The band is OFF by
     // default (opt-in), so enable it explicitly for this test.
     CHECK(pb_policy_set_auto(
-        60.0f, 100.0f, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+        60.0f, 100.0f, false, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
     CHECK(pb_policy_set_filter_config(30.0f, true) == PB_POLICY_OK);
 
     // Bed below filter_temp: no filtration, fan off.
@@ -608,7 +641,7 @@ static void test_runtime_limits_drive_auto_and_remote_lease(void)
     reset_fixture();
     heater_max_target_c = 52.0f;
     CHECK(pb_policy_set_auto(
-        65.0f, 100.0f, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+        65.0f, 100.0f, false, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
     CHECK(snapshot().requested_target_c == 52.0f);
     // AUTO heats to the live filament-zone target (65), clamped to the runtime max (52).
     pb_policy_set_env(20.0f, 0.0f, true, 65.0f, NAN);
@@ -767,7 +800,7 @@ static void test_params_persist_only_changed_keys(void)
 
     unsigned before = nvs_writes;
     CHECK(pb_policy_set_auto(
-        55.0f, 90.0f, DB_SOURCE_WEB, PB_POLICY_REVISION_ANY) == PB_POLICY_OK);
+        55.0f, 90.0f, false, DB_SOURCE_WEB, PB_POLICY_REVISION_ANY) == PB_POLICY_OK);
     CHECK(pb_policy_persist_pending());
     CHECK(nvs_read("md_auto_tgt") == 5500);
     CHECK(nvs_read("md_auto_bed") == 9000);
@@ -869,7 +902,7 @@ static void test_panel_leds_track_mode(void)
     // AUTO armed but not engaged (no printer link) -> slow blink, not solid.
     pb_policy_set_mode_off(DB_SOURCE_WEB);
     CHECK(pb_policy_set_auto(
-        60.0f, 100.0f, DB_SOURCE_WEB, PB_POLICY_REVISION_ANY) == PB_POLICY_OK);
+        60.0f, 100.0f, false, DB_SOURCE_WEB, PB_POLICY_REVISION_ANY) == PB_POLICY_OK);
     pb_policy_set_env(20.0f, 20.0f, false, 0.0f, NAN);
     pb_policy_tick();
     CHECK(led_pattern[PB_LED_AUTO] == PB_LED_BLINK_SLOW);
@@ -1101,7 +1134,7 @@ static void test_remote_commands_wake_only_when_accepted(void)
     CHECK(wake_calls == 2);
 
     CHECK(pb_policy_set_auto(
-        50.0f, 60.0f, DB_SOURCE_WEB, PB_POLICY_REVISION_ANY)
+        50.0f, 60.0f, false, DB_SOURCE_WEB, PB_POLICY_REVISION_ANY)
         == PB_POLICY_OK);
     CHECK(wake_calls == 3);
 
@@ -1282,7 +1315,7 @@ static void test_purge_decide_session_and_hysteresis(void)
 static void test_auto_source_zone_overrides_bed_threshold(void)
 {
     reset_fixture();
-    CHECK(pb_policy_set_auto(60.0f, 100.0f, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+    CHECK(pb_policy_set_auto(60.0f, 100.0f, false, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
 
     // Cold bed, no bed setpoint (0 < 100) -> bed-AUTO alone does NOT engage.
     pb_policy_set_env(20.0f, 0.0f, true, 0.0f, NAN);
@@ -1316,7 +1349,7 @@ static void test_manual_override_of_auto_reverts_on_run_end(void)
 {
     // (a) local timed-run completion reverts to AUTO waiting.
     reset_fixture();
-    CHECK(pb_policy_set_auto(60.0f, 100.0f, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+    CHECK(pb_policy_set_auto(60.0f, 100.0f, false, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
     uint32_t rev = snapshot().state_revision;
     CHECK(pb_policy_set_power_on(
         45.0f, DB_SOURCE_BUTTON, "panel", rev, NULL) == PB_POLICY_OK);
@@ -1352,7 +1385,7 @@ static void test_manual_override_explicit_off_stays_off(void)
 {
     // off command:
     reset_fixture();
-    CHECK(pb_policy_set_auto(60.0f, 100.0f, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+    CHECK(pb_policy_set_auto(60.0f, 100.0f, false, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
     uint32_t rev = snapshot().state_revision;
     pb_policy_lease_t lease;
     CHECK(pb_policy_set_power_on(
@@ -1403,7 +1436,7 @@ static void test_manual_from_off_ends_off(void)
 static void test_manual_override_safety_off_no_revert(void)
 {
     reset_fixture();
-    CHECK(pb_policy_set_auto(60.0f, 100.0f, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+    CHECK(pb_policy_set_auto(60.0f, 100.0f, false, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
     uint32_t rev = snapshot().state_revision;
     pb_policy_lease_t lease;
     CHECK(pb_policy_set_power_on(
@@ -1423,6 +1456,7 @@ int main(void)
     test_lease_expiry_latches_watchdog_fault();
     test_web_lease_expiry_names_the_browser_tab();
     test_auto_requires_live_source();
+    test_auto_explicit_off_zone_overrides_bed_preheat();
     test_klipper_helper_suppresses_auto();
     test_auto_source_zone_overrides_bed_threshold();
     test_external_chamber_control_forwarding();

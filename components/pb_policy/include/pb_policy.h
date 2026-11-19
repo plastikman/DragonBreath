@@ -70,6 +70,7 @@ typedef struct {
     uint8_t dry_hours;            // last accepted drying duration
     float filter_temp_c;          // AUTO fan-only band: blower runs alone at bed>=this
     bool filter_auto_enable;      // enable the AUTO fan-only (filtration) band
+    bool auto_follow_bed;         // preheat from printer bed setpoint before filament is reported
 } pb_policy_params_t;
 
 typedef struct {
@@ -154,6 +155,7 @@ pb_policy_result_t pb_policy_set_button_power_on(
 pb_policy_result_t pb_policy_set_auto(
     float target_c,
     float bed_threshold_c,
+    bool follow_bed,
     db_source_t source,
     uint32_t expected_revision);
 
@@ -212,6 +214,10 @@ void pb_policy_set_env(
     float src_target_c,
     float chamber_src_c
 );
+
+// Set true when the active filament resolves to a configured zone. This separate
+// flag preserves an explicit Off (0 °C) zone, which must override bed preheat.
+void pb_policy_set_source_zone_available(bool available);
 
 // Report whether the Klipper `[dragonbreath]` helper is present on the printer's
 // Moonraker (dc_moonraker's db_present). The helper is itself a manual chamber

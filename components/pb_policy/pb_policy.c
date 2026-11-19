@@ -43,6 +43,7 @@ static const char *TAG = "pb_policy";
 #define PB_NVS_KEY_DRY_HRS          "md_dry_hrs"
 #define PB_NVS_KEY_FILT_TMP         "md_filt_tmp"
 #define PB_NVS_KEY_FILT_EN          "md_filt_en"
+#define PB_NVS_KEY_FOLLOW_BED       "md_foll_bed"
 
 #define PB_AUTO_BED_MIN_C           40.0f
 #define PB_AUTO_BED_MAX_C          120.0f
@@ -84,6 +85,7 @@ typedef struct {
     bool auto_engaged;
     bool auto_filtering;         // AUTO fan-only band latch (blower on, no heat)
     float src_target_c;          // source-requested chamber target (e.g. Bambu filament
+    bool src_zone_available;      // matched filament zone; true even when explicitly Off
                                  // zone); 0 = none. When >0 in AUTO it engages heat to
                                  // this target directly, bypassing the bed threshold.
     float chamber_src_c;         // printer-reported chamber temperature;
@@ -291,6 +293,7 @@ static void params_defaults_locked(void)
     s.params.dry_hours            = PB_DEFAULT_DRY_HOURS;
     s.params.filter_temp_c        = PB_DEFAULT_FILTER_TEMP_C;
     s.params.filter_auto_enable   = PB_DEFAULT_FILTER_AUTO_EN;
+    s.params.auto_follow_bed = false;
 }
 
 // Wake the persistence worker. Call AFTER releasing s_lock: NVS writes must
@@ -320,6 +323,8 @@ static esp_err_t persist_params(const pb_policy_params_t *p)
                                c_to_centi(s_written.filter_temp_c) },
         { PB_NVS_KEY_FILT_EN,  p->filter_auto_enable ? 1u : 0u,
                                s_written.filter_auto_enable ? 1u : 0u },
+        { PB_NVS_KEY_FOLLOW_BED, p->auto_follow_bed ? 1u : 0u,
+                                 s_written.auto_follow_bed ? 1u : 0u },
     };
     const size_t n = sizeof kv / sizeof kv[0];
 
@@ -406,6 +411,8 @@ void pb_policy_load_params(void)
             p.filter_temp_c = centi_to_c(v);
         if (nvs_get_u32(h, PB_NVS_KEY_FILT_EN, &v) == ESP_OK)
             p.filter_auto_enable = (v != 0);
+        if (nvs_get_u32(h, PB_NVS_KEY_FOLLOW_BED, &v) == ESP_OK)
+            p.auto_follow_bed = (v != 0);
         nvs_close(h);
     }
     params_clamp(&p);
@@ -563,6 +570,7 @@ pb_policy_result_t pb_policy_set_button_power_on(
 pb_policy_result_t pb_policy_set_auto(
     float target_c,
     float bed_threshold_c,
+    bool follow_bed,
     db_source_t source,
     uint32_t expected_revision)
 {
@@ -592,6 +600,7 @@ pb_policy_result_t pb_policy_set_auto(
     revision_advance_locked(source);
     s.params.auto_target_c = s.requested_target_c;     // post-clamp
     s.params.auto_bed_threshold_c = bed_threshold_c;
+    s.params.auto_follow_bed = follow_bed;
     s.params_dirty = true;
     xSemaphoreGive(s_lock);
     wake_control_task();
@@ -755,8 +764,17 @@ void pb_policy_set_env(
     s.bed_target_c = isfinite(bed_target_c) ? bed_target_c : 0.0f;
     s.mk_connected = source_connected;
     s.src_target_c = src_target_c;
+    s.src_zone_available = src_target_c > 0.0f;
     s.chamber_src_c = isfinite(chamber_src_c) ? chamber_src_c : NAN;
 
+    xSemaphoreGive(s_lock);
+}
+
+void pb_policy_set_source_zone_available(bool available)
+{
+    if (!s_lock) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s.src_zone_available = available;
     xSemaphoreGive(s_lock);
 }
 
@@ -879,7 +897,7 @@ static pb_policy_result_t button_toggle_mode(pb_mode_t target_mode)
                 "button", PB_POLICY_REVISION_ANY, NULL);
         case PB_MODE_AUTO:
             return pb_policy_set_auto(
-                p.auto_target_c, p.auto_bed_threshold_c,
+                p.auto_target_c, p.auto_bed_threshold_c, p.auto_follow_bed,
                 DB_SOURCE_BUTTON, PB_POLICY_REVISION_ANY);
         case PB_MODE_DRYING:
             return pb_policy_start_drying(
@@ -1074,12 +1092,14 @@ void pb_policy_tick(void)
             // software cannot own the target). AUTO stays armed but never engages
             // while the helper is present — the helper's commands drive POWER_ON
             // instead. Remove the helper and AUTO resumes on the next tick.
-            s.auto_engaged = (!s.klipper_helper_present
-                              && s.mk_connected && s.src_target_c > 0.0f);
+            bool bed_preheat = s.params.auto_follow_bed && s.bed_target_c > 0.0f
+                               && !s.src_zone_available;
+            s.auto_engaged = (!s.klipper_helper_present && s.mk_connected
+                              && (s.src_target_c > 0.0f || bed_preheat));
             if (s.auto_engaged != was_engaged)
                 revision_advance_locked(s.source);
             if (s.auto_engaged) {
-                target = s.src_target_c;
+                target = s.src_zone_available ? s.src_target_c : s.params.auto_target_c;
                 autonomous = true;
             }
             break;

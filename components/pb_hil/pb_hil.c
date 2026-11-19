@@ -217,7 +217,7 @@ static pb_policy_result_t run_mode_command(
         if (!json_number(request, "bed_threshold_c", &threshold))
             return PB_POLICY_INVALID;
         return pb_policy_set_auto(
-            (float)target, (float)threshold, DB_SOURCE_WEB,
+            (float)target, (float)threshold, false, DB_SOURCE_WEB,
             PB_POLICY_REVISION_ANY);
     }
     if (strcmp(mode->valuestring, "drying") == 0) {
@@ -313,6 +313,11 @@ static void handle_request(const cJSON *request)
         // absent -> 0 (normal bed-AUTO), so existing scenarios are unchanged.
         double src_target_c = 0.0;
         json_number(request, "src_target_c", &src_target_c);
+        bool src_zone_available = src_target_c > 0.0;
+        const cJSON *zone_available =
+            cJSON_GetObjectItemCaseSensitive(request, "src_zone_available");
+        if (cJSON_IsBool(zone_available))
+            src_zone_available = cJSON_IsTrue(zone_available);
 
         // chamber_src_c: optional printer-reported chamber temperature.
         // Absent -> NAN, preserving existing HIL behaviour.
@@ -326,6 +331,7 @@ static void handle_request(const cJSON *request)
             (float)src_target_c,
             (float)chamber_src_c
         );
+        pb_policy_set_source_zone_available(src_zone_available);
 
         cJSON_AddBoolToObject(response, "ok", true);
     } else if (strcmp(cmd->valuestring, "zero_cross") == 0) {

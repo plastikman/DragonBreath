@@ -255,6 +255,7 @@ static cJSON *state_json(const pb_policy_snapshot_t *s)
     cJSON_AddNumberToObject(pj, "dry_hours", s->params.dry_hours);
     add_num1(pj, "filter_temp_c", s->params.filter_temp_c);
     cJSON_AddBoolToObject(pj, "filter_auto_enable", s->params.filter_auto_enable);
+    cJSON_AddBoolToObject(pj, "auto_follow_bed", s->params.auto_follow_bed);
 
     cJSON *safety = cJSON_AddObjectToObject(o, "safety");
     cJSON_AddBoolToObject(safety, "fault_latched", s->fault_latched);
@@ -539,6 +540,7 @@ static esp_err_t command_post(httpd_req_t *req)
 
     pb_policy_result_t result = PB_POLICY_INVALID;
     double target = 0.0, threshold = 0.0, hours = 0.0, fan_percent = 0.0;
+    cJSON *follow_bed_item = NULL;
     pb_policy_lease_t issued_lease = {0};
     if (strcmp(cmd, "off") == 0) {
         pb_policy_set_mode_off(source);
@@ -558,8 +560,10 @@ static esp_err_t command_post(httpd_req_t *req)
     } else if (strcmp(cmd, "auto") == 0
             && json_number(command, "target_c", &target)
             && json_number(command, "bed_threshold_c", &threshold)) {
+        follow_bed_item = cJSON_GetObjectItemCaseSensitive(command, "follow_bed");
         result = pb_policy_set_auto(
-            (float)target, (float)threshold, source, revision);
+            (float)target, (float)threshold,
+            cJSON_IsTrue(follow_bed_item), source, revision);
     } else if (strcmp(cmd, "drying_start") == 0
             && json_number(command, "target_c", &target)
             && json_number(command, "hours", &hours)
