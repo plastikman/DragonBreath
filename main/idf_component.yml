@@ -14,7 +14,7 @@ dependencies:
   dc_bambu:
     git: https://github.com/plastikman/dragon-core.git
     path: components/dc_bambu
-    version: 820d8dae5b6d11a234d8b4ca2bd7ff59af32c4a1
+    version: 4b24f79e9da316813a1da54388ea16170c2de68b
   dc_wifi:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_wifi
@@ -26,7 +26,7 @@ dependencies:
   dc_ui:
     git: https://github.com/plastikman/dragon-core.git
     path: components/dc_ui
-    version: 820d8dae5b6d11a234d8b4ca2bd7ff59af32c4a1
+    version: 4b24f79e9da316813a1da54388ea16170c2de68b
   dc_mqtt:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_mqtt
