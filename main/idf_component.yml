@@ -24,7 +24,7 @@ dependencies:
     path: components/dc_moonraker
     version: v0.36.0
   dc_ui:
-    git: https://github.com/justinh-rahb/dragon-core.git
+    git: https://github.com/plastikman/dragon-core.git
     path: components/dc_ui
     version: 04b0c411e857a402b727713ca617f25fcae31f6e
   dc_mqtt:
