@@ -90,7 +90,9 @@ EOF
 CORE_REF="${CORE_REF:-$(awk '/^  dc_portal:/{found=1} found && /^    version:/{print $2; exit}' main/idf_component.yml)}"
 UI_SOURCE="${UI_SOURCE:-$(awk '/^  dc_ui:/{found=1} found && /^    git:/{print $2; exit}' main/idf_component.yml | sed -E 's#https://github.com/##; s#\.git$##')}"
 UI_REF="${UI_REF:-$(awk '/^  dc_ui:/{found=1} found && /^    version:/{print $2; exit}' main/idf_component.yml)}"
-export VERSION SOURCE_SHA IDF_VERSION TARGET BOARD BUILT_AT CORE_REF UI_SOURCE UI_REF
+BAMBU_SOURCE="${BAMBU_SOURCE:-$(awk '/^  dc_bambu:/{found=1} found && /^    git:/{print $2; exit}' main/idf_component.yml | sed -E 's#https://github.com/##; s#\.git$##')}"
+BAMBU_REF="${BAMBU_REF:-$(awk '/^  dc_bambu:/{found=1} found && /^    version:/{print $2; exit}' main/idf_component.yml)}"
+export VERSION SOURCE_SHA IDF_VERSION TARGET BOARD BUILT_AT CORE_REF UI_SOURCE UI_REF BAMBU_SOURCE BAMBU_REF
 python3 - "$OUT/$APP" "$OUT/$FACTORY" \
     "$BUILD_DIR/bootloader/bootloader.bin" \
     "$BUILD_DIR/partition_table/partition-table.bin" \
@@ -105,7 +107,7 @@ print(json.dumps({
     "idf_version":os.environ["IDF_VERSION"],
     "target":os.environ["TARGET"],"board":os.environ["BOARD"],
     "shared_core":{"source":"github.com/justinh-rahb/dragon-core","ref":os.environ["CORE_REF"],"license":"MIT","components":["dc_evlog","dc_source","dc_bambu","dc_wifi","dc_moonraker","dc_mqtt","dc_portal"]},
-    "component_overrides":[{"component":"dc_ui","source":os.environ["UI_SOURCE"],"ref":os.environ["UI_REF"]}],
+    "component_overrides":[{"component":"dc_ui","source":os.environ["UI_SOURCE"],"ref":os.environ["UI_REF"]},{"component":"dc_bambu","source":os.environ["BAMBU_SOURCE"],"ref":os.environ["BAMBU_REF"]}],
     "built_at_utc":os.environ["BUILT_AT"],
     "note":"managed component versions in dependencies.lock (bundled)",
     "artifacts":arts,
