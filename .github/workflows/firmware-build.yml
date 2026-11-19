@@ -42,7 +42,9 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Keep Cppcheck on the verified Ubuntu 24.04 toolchain. Ubuntu 26.04
+    # ships Cppcheck 2.19, which rejects the portal GNU asm symbol aliases.
+    runs-on: ubuntu-24.04
     steps:
       # SHA-pinned (supply-chain); trailing comment tracks the human version.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
