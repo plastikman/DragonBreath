@@ -26,7 +26,7 @@ dependencies:
   dc_ui:
     git: https://github.com/plastikman/dragon-core.git
     path: components/dc_ui
-    version: 04b0c4167d5ba6ee888c9b08faac29ff9af02647
+    version: 820d8da0d4884c3d3d0dd60c692a3f596b485d77
   dc_mqtt:
     git: https://github.com/justinh-rahb/dragon-core.git
     path: components/dc_mqtt

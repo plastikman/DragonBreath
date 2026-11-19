@@ -215,6 +215,10 @@ void pb_policy_set_env(
     float chamber_src_c
 );
 
+// Set true when the active filament resolves to a configured zone. This separate
+// flag preserves an explicit Off (0 °C) zone, which must override bed preheat.
+void pb_policy_set_source_zone_available(bool available);
+
 // Report whether the Klipper `[dragonbreath]` helper is present on the printer's
 // Moonraker (dc_moonraker's db_present). The helper is itself a manual chamber
 // controller, so when it is installed AUTO must not also drive the heater — two

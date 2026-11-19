@@ -414,6 +414,39 @@ static void test_auto_requires_live_source(void)
     CHECK(snap.effective_target_c == 0.0f);
 }
 
+// A configured Off zone is still an explicit filament choice. It must suppress
+// bed preheat rather than falling back to the AUTO preheat target.
+static void test_auto_explicit_off_zone_overrides_bed_preheat(void)
+{
+    reset_fixture();
+    CHECK(pb_policy_set_auto(
+        60.0f, 100.0f, true, DB_SOURCE_WEB, 1) == PB_POLICY_OK);
+
+    // Bed starts preheating before filament telemetry arrives.
+    pb_policy_set_env(20.0f, 100.0f, true, 0.0f, NAN);
+    pb_policy_set_source_zone_available(false);
+    pb_policy_tick();
+    pb_policy_snapshot_t snap = snapshot();
+    CHECK(snap.auto_engaged);
+    CHECK(snap.effective_target_c == 60.0f);
+
+    // A positive filament zone replaces the preheat target.
+    pb_policy_set_env(20.0f, 100.0f, true, 55.0f, NAN);
+    pb_policy_set_source_zone_available(true);
+    pb_policy_tick();
+    snap = snapshot();
+    CHECK(snap.auto_engaged);
+    CHECK(snap.effective_target_c == 55.0f);
+
+    // The same active bed setpoint cannot override an explicit Off zone.
+    pb_policy_set_env(20.0f, 100.0f, true, 0.0f, NAN);
+    pb_policy_set_source_zone_available(true);
+    pb_policy_tick();
+    snap = snapshot();
+    CHECK(!snap.auto_engaged);
+    CHECK(snap.effective_target_c == 0.0f);
+}
+
 // The Klipper [dragonbreath] helper is itself a manual chamber controller; when it
 // is installed (db_present over Moonraker) AUTO must not also drive the heater. AUTO
 // stays armed but never engages while the helper is present, and resumes once it's
@@ -1423,6 +1456,7 @@ int main(void)
     test_lease_expiry_latches_watchdog_fault();
     test_web_lease_expiry_names_the_browser_tab();
     test_auto_requires_live_source();
+    test_auto_explicit_off_zone_overrides_bed_preheat();
     test_klipper_helper_suppresses_auto();
     test_auto_source_zone_overrides_bed_threshold();
     test_external_chamber_control_forwarding();

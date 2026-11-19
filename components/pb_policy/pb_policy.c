@@ -85,6 +85,7 @@ typedef struct {
     bool auto_engaged;
     bool auto_filtering;         // AUTO fan-only band latch (blower on, no heat)
     float src_target_c;          // source-requested chamber target (e.g. Bambu filament
+    bool src_zone_available;      // matched filament zone; true even when explicitly Off
                                  // zone); 0 = none. When >0 in AUTO it engages heat to
                                  // this target directly, bypassing the bed threshold.
     float chamber_src_c;         // printer-reported chamber temperature;
@@ -763,8 +764,17 @@ void pb_policy_set_env(
     s.bed_target_c = isfinite(bed_target_c) ? bed_target_c : 0.0f;
     s.mk_connected = source_connected;
     s.src_target_c = src_target_c;
+    s.src_zone_available = src_target_c > 0.0f;
     s.chamber_src_c = isfinite(chamber_src_c) ? chamber_src_c : NAN;
 
+    xSemaphoreGive(s_lock);
+}
+
+void pb_policy_set_source_zone_available(bool available)
+{
+    if (!s_lock) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s.src_zone_available = available;
     xSemaphoreGive(s_lock);
 }
 
@@ -1082,13 +1092,14 @@ void pb_policy_tick(void)
             // software cannot own the target). AUTO stays armed but never engages
             // while the helper is present — the helper's commands drive POWER_ON
             // instead. Remove the helper and AUTO resumes on the next tick.
-            bool bed_preheat = s.params.auto_follow_bed && s.bed_target_c > 0.0f;
+            bool bed_preheat = s.params.auto_follow_bed && s.bed_target_c > 0.0f
+                               && !s.src_zone_available;
             s.auto_engaged = (!s.klipper_helper_present && s.mk_connected
                               && (s.src_target_c > 0.0f || bed_preheat));
             if (s.auto_engaged != was_engaged)
                 revision_advance_locked(s.source);
             if (s.auto_engaged) {
-                target = s.src_target_c > 0.0f ? s.src_target_c : s.params.auto_target_c;
+                target = s.src_zone_available ? s.src_target_c : s.params.auto_target_c;
                 autonomous = true;
             }
             break;
