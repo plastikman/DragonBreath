@@ -4,8 +4,10 @@ API v2 is the sole device control contract. It replaces the alpha `/status`,
 `/target`, `/heartbeat`, and `/reset` routes; clients must not probe for or fall
 back to those routes.
 
-All bodies are JSON. Read-only routes are open on the trusted LAN. Mutating
-routes require `X-DragonBreath-Auth`; the device does not enable CORS.
+API v2 command and state bodies are JSON unless a diagnostic route explicitly
+specifies another content type. Most read-only routes are open on the trusted
+LAN; raw console and ADC capture exports require `X-DragonBreath-Auth`.
+Mutating routes also require this header; the device does not enable CORS.
 
 ## Read-only routes
 
@@ -25,8 +27,12 @@ routes require `X-DragonBreath-Auth`; the device does not enable CORS.
   Open (read-only, no side effects).
 - `GET /api/v2/console` — **auth-gated** (`X-DragonBreath-Auth`) `text/plain` snapshot
   of the firmware `ESP_LOGx` byte ring (boot log included), backing the `/console`
-  page. The one GET that requires the header: raw logs are chatty and not
-  world-readable. No side effects.
+  page. Raw logs are chatty and not world-readable. No side effects.
+- `GET /api/v2/adc-capture` — **auth-gated** (`X-DragonBreath-Auth`) read-only
+  `text/csv` snapshot of the existing, bounded thermistor ADC sample ring.
+  This route does not trigger ADC reads or change safety behavior. Headers
+  identify boot, firmware, capture uptime and per-channel calibration offsets;
+  see [ADC capture](ADC_CAPTURE.md) for the exact CSV and header contract.
 
 `GET /api/v2/info` also returns `project` (the running app's project name —
 `dragonbreath`, or `panda_breath` on a reverted slot). The **configured control
