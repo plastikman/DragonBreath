@@ -87,7 +87,7 @@ Verify downloads first:  sha256sum -c SHA256SUMS.txt
 EOF
 
 # 4. provenance manifest (per-artifact SHA-256)
-CORE_REF="${CORE_REF:-$(awk '/^  dc_portal:/{found=1} found && /^    version:/{print $2; exit}' main/idf_component.yml)}"
+CORE_REF="${CORE_REF:-$(awk '/^  dc_ui:/{found=1} found && /^    version:/{print $2; exit}' main/idf_component.yml)}"
 export VERSION SOURCE_SHA IDF_VERSION TARGET BOARD BUILT_AT CORE_REF
 python3 - "$OUT/$APP" "$OUT/$FACTORY" \
     "$BUILD_DIR/bootloader/bootloader.bin" \
